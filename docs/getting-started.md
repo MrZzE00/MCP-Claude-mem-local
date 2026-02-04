@@ -397,17 +397,22 @@ cp ~/claude-memory-local/CLAUDE.md.example /your/project/CLAUDE.md
 
 ### Per-Folder Context
 
-When storing memories with a `project` path, MCP-Claude-mem-local automatically updates the `CLAUDE.md` in that directory:
+When storing memories with a `project` path, the memory is associated with that project.
+
+**CLAUDE.md is updated via hooks**, not directly by `store_memory`:
+- The `context-hook.py` script runs on `SessionStart`, `PostToolUse`, and `Stop`
+- It reads memories for the current project from PostgreSQL
+- It injects a context block into the project's `CLAUDE.md`
 
 ```typescript
 store_memory({
   content: "Fixed authentication bug in login component",
   category: "bugfix",
-  project: "/path/to/your/project"  // <-- This triggers CLAUDE.md update
+  project: "/path/to/your/project"  // <-- Associates memory with project
 })
 ```
 
-This creates or updates a context block in your project's `CLAUDE.md`:
+On the next hook trigger, this creates or updates a context block in your project's `CLAUDE.md`:
 
 ```markdown
 <claude-memory-local-context>
