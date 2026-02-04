@@ -14,6 +14,7 @@ Persistent local memory system for Claude Code using PostgreSQL + pgvector for s
 - [Configuration](#configuration)
 - [Usage](#usage)
   - [MCP Tools](#mcp-tools)
+  - [Automatic Prompt Capture](#automatic-prompt-capture)
   - [Web Interface](#web-interface)
   - [CLAUDE.md Integration](#claudemd-integration)
 - [Recommended Workflow](#recommended-workflow)
@@ -55,7 +56,7 @@ Persistent local memory system for Claude Code using PostgreSQL + pgvector for s
 | **PostgreSQL 17 + pgvector** | Memory storage + vector search (Homebrew) | 5432 | ✅ Yes |
 | **Ollama** | Local embedding generation (nomic-embed-text) | 11434 | ❌ Manual |
 | **MCP Server** | Interface with Claude Code (5 tools) | stdio | - |
-| **Plugin hooks** | Auto-inject context into CLAUDE.md | - | - |
+| **Plugin hooks** | Auto-inject context into CLAUDE.md + capture prompts | - | - |
 | **Web Interface** | Memory and prompt visualization | 8080 | - |
 
 ### After a System Reboot
@@ -290,6 +291,42 @@ delete_memory({
   memory_id: "uuid-of-memory"
 })
 ```
+
+---
+
+### Automatic Prompt Capture
+
+MCP-Claude-mem-local automatically captures your prompts using the `UserPromptSubmit` hook. This enables semantic search across your prompt history.
+
+**How it works:**
+1. Every prompt you submit triggers the `UserPromptSubmit` hook
+2. The `capture-prompt.py` script extracts the project context
+3. An embedding is generated via Ollama (nomic-embed-text)
+4. The prompt is stored in the `user_prompts` table
+
+**Key features:**
+- **Non-blocking**: Never slows down Claude Code (10s timeout, silent failures)
+- **Project-aware**: Associates prompts with the current project
+- **Searchable**: Vector embeddings enable semantic search
+- **Visible in Web UI**: Prompts tab shows your history
+
+**Configuration** (in `~/.claude/settings.json`):
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "type": "command",
+        "command": "~/claude-memory-local/venv/bin/python3 ~/claude-memory-local/plugins/scripts/capture-prompt.py",
+        "timeout": 10,
+        "failOnError": false
+      }
+    ]
+  }
+}
+```
+
+> 📖 Full documentation: [docs/hooks-prompts-capture.md](docs/hooks-prompts-capture.md)
 
 ---
 
