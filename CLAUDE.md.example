@@ -66,6 +66,70 @@ cd ~/claude-memory-local && python3 -m http.server 8080
 
 ---
 
+## 📋 MATRICE DE DÉCISION AUTOMATIQUE
+
+```
+IF création_composant_UI THEN
+  → Skill: 
+  → Agent: 
+  → MCP: 
+  → FIN: store_memory category="feature"
+
+IF implémentation_feature THEN
+  → Skill: 
+  → Agent: 
+  → MCP: 
+  → FIN: store_memory category="feature"
+
+IF design_architecture THEN
+  → Skill: 
+  → Agent: 
+  → MCP: 
+  → FIN: store_memory category="decision"
+
+IF bug_ou_problème THEN
+  → Skill: 
+  → Agent: 
+  → MCP: 
+  → FIN: store_memory category="bugfix"
+
+IF tests THEN
+  → Skill: 
+  → Agent: 
+  → MCP: 
+  → Agent: quality-engineer
+
+IF début_session THEN
+  → Skill: 
+  → Agent: 
+  → MCP: 
+  → retrieve_memories (contexte pertinent)
+
+IF fin_session THEN
+  → Skill: 
+  → Agent: 
+  → MCP: 
+  → store_memory (enseignements importants)
+
+IF commande_git THEN
+  → Skill: 
+  → Agent: 
+  → MCP: 
+
+IF tâche_complexe (>3 étapes) THEN
+  → Skill: 
+  → Agent: 
+  → MCP: 
+
+IF découverte_importante THEN
+  → store_memory category="discovery"
+
+IF refactoring THEN
+  → store_memory category="refactor"
+```
+
+---
+
 <claude-memory-local-context>
 # Recent Activity
 
