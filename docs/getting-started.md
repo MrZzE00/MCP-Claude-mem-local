@@ -268,6 +268,68 @@ Your `~/.claude.json` should include:
 }
 ```
 
+### Configuration for Other IDEs
+
+The MCP server uses the **stdio transport** (standard MCP protocol), making it compatible with all MCP-enabled tools.
+
+#### GitHub Copilot (VS Code)
+
+Create `.vscode/mcp.json` in your workspace:
+```json
+{
+  "mcp": {
+    "servers": {
+      "claude-memory-local": {
+        "type": "stdio",
+        "command": "~/claude-memory-local/start-server.sh"
+      }
+    }
+  }
+}
+```
+
+#### Cursor
+
+Add to `~/.cursor/mcp.json`:
+```json
+{
+  "mcpServers": {
+    "claude-memory-local": {
+      "command": "~/claude-memory-local/start-server.sh",
+      "args": []
+    }
+  }
+}
+```
+
+#### JetBrains (IntelliJ, WebStorm, PyCharm)
+
+1. Settings → Tools → MCP Servers
+2. Add Server → Type: stdio
+3. Command: `~/claude-memory-local/start-server.sh`
+
+#### Antigravity
+
+1. Settings → MCP Servers → Add Custom Server
+2. Type: stdio
+3. Command: `~/claude-memory-local/start-server.sh`
+
+#### VS Code (with MCP extension)
+
+Add to `settings.json`:
+```json
+{
+  "mcp.servers": {
+    "claude-memory-local": {
+      "type": "stdio",
+      "command": "~/claude-memory-local/start-server.sh"
+    }
+  }
+}
+```
+
+> **Note**: The hooks system (auto-capture prompts, CLAUDE.md injection) is specific to Claude Code. Other IDEs will use the MCP tools directly without automation hooks.
+
 ---
 
 ## First Steps
