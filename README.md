@@ -310,11 +310,16 @@ store_memory({
 | `learning` | 📘 | Lesson learned |
 | `error_solution` | 🩹 | Solution to specific error |
 
-**New Feature: Per-folder CLAUDE.md**
+**Per-folder CLAUDE.md**
 
-When you provide a `project` path, `store_memory` automatically updates:
-- The `CLAUDE.md` in the specified directory
-- The `CLAUDE.md` in the project root (if different)
+When you provide a `project` path, the memory is stored with project context.
+
+**CLAUDE.md is updated automatically via hooks** at:
+- `SessionStart` — When Claude Code session begins
+- `PostToolUse` — After file modifications (Write, Edit, MultiEdit)
+- `Stop` — When session ends
+
+The `context-hook.py` script reads memories for the current project and injects them into `CLAUDE.md`.
 
 #### 2. `retrieve_memories` — Search memories
 
@@ -421,7 +426,7 @@ Open: **http://localhost:8080/viewer.html**
 
 ### CLAUDE.md Integration
 
-The system automatically updates `CLAUDE.md` files with recent memories when you call `store_memory` with a `project` path.
+The system updates `CLAUDE.md` files with recent memories **via hooks** (not directly from `store_memory`). When you store a memory with a `project` path, the context injection happens on the next hook trigger (SessionStart, PostToolUse, or Stop).
 
 #### Result in CLAUDE.md
 
