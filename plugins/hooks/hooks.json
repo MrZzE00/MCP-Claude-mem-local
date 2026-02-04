@@ -1,0 +1,60 @@
+{
+  "name": "claude-memory-local",
+  "version": "1.1.0",
+  "description": "MCP-Claude-mem-local - Persistent memory hooks for Claude Code",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "description": "Capture user prompts automatically for memory and search",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_MEMORY_HOME:-$HOME/claude-memory-local}/venv/bin/python3\" \"${CLAUDE_MEMORY_HOME:-$HOME/claude-memory-local}/plugin/scripts/capture-prompt.py\"",
+            "timeout": 10,
+            "failOnError": false
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "description": "Inject memory context at session start",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_MEMORY_HOME:-$HOME/claude-memory-local}/venv/bin/python3\" \"${CLAUDE_MEMORY_HOME:-$HOME/claude-memory-local}/plugin/scripts/context-hook.py\" session-start",
+            "timeout": 30,
+            "failOnError": false
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "description": "Update context after file modifications",
+        "matcher": "Write|Edit|MultiEdit|CreateFile",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_MEMORY_HOME:-$HOME/claude-memory-local}/venv/bin/python3\" \"${CLAUDE_MEMORY_HOME:-$HOME/claude-memory-local}/plugin/scripts/context-hook.py\" post-tool",
+            "timeout": 30,
+            "failOnError": false
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "description": "Final context update at session end",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_MEMORY_HOME:-$HOME/claude-memory-local}/venv/bin/python3\" \"${CLAUDE_MEMORY_HOME:-$HOME/claude-memory-local}/plugin/scripts/context-hook.py\" stop",
+            "timeout": 30,
+            "failOnError": false
+          }
+        ]
+      }
+    ]
+  }
+}

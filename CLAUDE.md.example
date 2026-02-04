@@ -1,0 +1,103 @@
+# CLAUDE.md - Project Configuration Template
+
+This is a template for configuring Claude Code with claude-memory-local integration.
+Copy this file to your project root as `CLAUDE.md` and customize it.
+
+## Project Overview
+
+| Attribute | Value |
+|-----------|-------|
+| **Name** | Your Project Name |
+| **Stack** | Your tech stack (e.g., Next.js, Python, etc.) |
+| **Status** | Development |
+
+## Claude Memory Local Integration
+
+### MCP Server
+
+The `claude-memory-local` MCP server provides persistent memory across sessions.
+
+**Available Tools:**
+
+| Tool | Description | Usage |
+|------|-------------|-------|
+| `store_memory` | Store a new memory | After bugfixes, decisions, discoveries |
+| `retrieve_memories` | Semantic search | Start of session, context retrieval |
+| `list_memories` | List recent memories | Overview of stored knowledge |
+| `memory_stats` | View statistics | Monitoring memory database |
+| `delete_memory` | Delete a memory | Cleanup outdated entries |
+
+### Memory Categories
+
+| Category | Icon | When to Use |
+|----------|------|-------------|
+| `bugfix` | 🔴 | After fixing a bug |
+| `decision` | 🟠 | Architectural or design decisions |
+| `feature` | 🟢 | New feature implementation |
+| `discovery` | 🔵 | Learning something new about the codebase |
+| `refactor` | 🟣 | Code refactoring |
+| `change` | ⚪ | General changes |
+| `pattern` | 🟤 | Reusable patterns identified |
+| `preference` | 🟡 | User preferences |
+
+### Recommended Workflow
+
+**Session Start:**
+```
+retrieve_memories("context for current task")
+```
+
+**During Development:**
+- After a bugfix: `store_memory(description, "bugfix", importance=0.9)`
+- After a decision: `store_memory(decision, "decision", importance=0.8)`
+- New discovery: `store_memory(learning, "discovery", importance=0.7)`
+
+**Session End:**
+- Store important learnings from the session
+- Update CLAUDE.md if needed
+
+### Web Interface
+
+Access the memory viewer at: `http://localhost:8080/viewer.html`
+
+```bash
+cd ~/claude-memory-local && python3 -m http.server 8080
+```
+
+---
+
+<claude-memory-local-context>
+# Recent Activity
+
+<!-- This section is auto-updated by claude-memory-local hooks -->
+<!-- It shows recent memories relevant to this project -->
+
+</claude-memory-local-context>
+
+---
+
+## Development Commands
+
+```bash
+# Add your project-specific commands here
+npm run dev              # Development server
+npm run build            # Production build
+npm run test             # Run tests
+```
+
+## Project Structure
+
+```
+your-project/
+├── src/                 # Source code
+├── tests/               # Test files
+└── docs/                # Documentation
+```
+
+## Conventions
+
+Document your project conventions here:
+- Naming conventions
+- Code style
+- Git workflow
+- etc.
