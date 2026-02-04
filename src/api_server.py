@@ -536,12 +536,17 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             });
             document.getElementById('statsGrid').innerHTML = statsHtml;
 
-            // Category filters - use escapeHtml and escapeAttr for XSS prevention
+            // Category filters - show all 10 categories with counts
+            const ALL_CATEGORIES = ['bugfix', 'decision', 'feature', 'discovery', 'refactor', 'change', 'pattern', 'preference', 'learning', 'error_solution'];
+            const catCounts = {};
+            data.by_category.forEach(c => { catCounts[c.category] = c.count; });
+
             let catHtml = '<span style="color:#888;margin-right:5px;">Type:</span>';
             catHtml += `<button class="filter-btn ${!currentCategory ? 'active' : ''}" onclick="filterCategory(null)">Toutes</button>`;
-            data.by_category.forEach(c => {
-                const safeCat = escapeAttr(c.category);
-                catHtml += `<button class="filter-btn ${currentCategory === c.category ? 'active' : ''}" onclick="filterCategory('${safeCat}')">${escapeHtml(c.category)} (${c.count})</button>`;
+            ALL_CATEGORIES.forEach(cat => {
+                const count = catCounts[cat] || 0;
+                const safeCat = escapeAttr(cat);
+                catHtml += `<button class="filter-btn ${currentCategory === cat ? 'active' : ''}" onclick="filterCategory('${safeCat}')">${escapeHtml(cat)} (${count})</button>`;
             });
             document.getElementById('categoryFilters').innerHTML = catHtml;
 
