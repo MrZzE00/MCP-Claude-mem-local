@@ -17,15 +17,19 @@ Configuration des agents IA pour **[NOM_DU_PROJET]**.
 
 | Situation Détectée | Actions Automatiques Obligatoires |
 |-------------------|-----------------------------------|
-| **Création composant UI** | 1. `Skill: frontend-design:frontend-design`<br>2. `MCP: context7` (patterns React/Next.js) |
-| **Implémentation feature** | 1. `Skill: sc:implement`<br>2. `MCP: context7`<br>3. **FIN:** `store_memory` category="feature" |
-| **Design/Architecture** | 1. `Skill: sc:design`<br>2. `Agent: system-architect`<br>3. `MCP: sequential-thinking`<br>4. **FIN:** `store_memory` category="decision" |
-| **Bug/Problème** | 1. `Skill: sc:troubleshoot`<br>2. `MCP: sequential-thinking`<br>3. **FIN:** `store_memory` category="bugfix" |
-| **Tests** | 1. `Skill: sc:test`<br>2. `Agent: quality-engineer` si stratégie |
-| **Début session** | 1. `Skill: sc:load`<br>2. `retrieve_memories` (contexte pertinent) |
-| **Fin session** | 1. `store_memory` (enseignements)<br>2. `Skill: sc:save` |
+| **Création composant UI** | `Skill:` <br>`Agent:` <br>`MCP:` <br>`FIN:` store_memory category="feature" |
+| **Implémentation feature** | `Skill:` <br>`Agent:` <br>`MCP:` <br>`FIN:` store_memory category="feature" |
+| **Design/Architecture** | `Skill:` <br>`Agent:` <br>`MCP:` <br>`FIN:` store_memory category="decision" |
+| **Bug/Problème** | `Skill:` <br>`Agent:` <br>`MCP:` <br>`FIN:` store_memory category="bugfix" |
+| **Tests** | `Skill:` <br>`Agent:` <br>`MCP:` |
+| **Début session** | `Skill:` <br>`retrieve_memories` (contexte pertinent) |
+| **Fin session** | `store_memory` (enseignements)<br>`Skill:` |
 | **Découverte importante** | `store_memory` category="discovery" |
 | **Refactoring** | `store_memory` category="refactor" |
+| **Pattern identifié** | `store_memory` category="pattern" |
+| **Préférence utilisateur** | `store_memory` category="preference" |
+| **Leçon apprise** | `store_memory` category="learning" |
+| **Solution erreur** | `store_memory` category="error_solution" |
 
 ### 🚫 Interdictions
 
@@ -54,7 +58,7 @@ Configuration des agents IA pour **[NOM_DU_PROJET]**.
 ```typescript
 store_memory({
   content: "Description complète du problème et de la solution",
-  category: "bugfix",           // bugfix|decision|feature|discovery|refactor|change
+  category: "bugfix",           // bugfix|decision|feature|discovery|refactor|change|pattern|preference|learning|error_solution
   summary: "Résumé court",      // optionnel, auto-généré si absent
   tags: ["auth", "api"],        // optionnel
   importance: 0.9,              // 0.0 à 1.0, défaut: 0.5
@@ -101,6 +105,10 @@ delete_memory({ memory_id: "uuid" })
 | `discovery` | 🔵 | Découverte, apprentissage technique |
 | `refactor` | 🟣 | Refactoring avec motivation |
 | `change` | ⚪ | Modification générale |
+| `pattern` | 🟤 | Pattern réutilisable identifié |
+| `preference` | 🟡 | Préférence utilisateur |
+| `learning` | 📘 | Enseignement, leçon apprise |
+| `error_solution` | 🩹 | Solution à une erreur spécifique |
 
 ### Workflow de Session
 
@@ -108,9 +116,9 @@ delete_memory({ memory_id: "uuid" })
 ┌─────────────────────────────────────────────────────────────┐
 │                    DÉBUT DE SESSION                          │
 ├─────────────────────────────────────────────────────────────┤
-│ 1. /sc:load                                                 │
+│ 1. [Votre skill de chargement]                              │
 │ 2. retrieve_memories({ query: "contexte projet" })          │
-│ 3. Lire CLAUDE.md (contexte injecté par MCP-Claude-mem-local)          │
+│ 3. Lire CLAUDE.md (contexte injecté par claude-memory-local)│
 └─────────────────────────────────────────────────────────────┘
                             │
                             ▼
@@ -128,15 +136,15 @@ delete_memory({ memory_id: "uuid" })
 │                    FIN DE SESSION                            │
 ├─────────────────────────────────────────────────────────────┤
 │ 1. store_memory (enseignements importants de la session)    │
-│ 2. /sc:save                                                 │
-│ 3. (optionnel) mcp-claude-mem-local-context pour MAJ CLAUDE.md         │
+│ 2. [Votre skill de sauvegarde]                              │
+│ 3. (optionnel) claude-context pour MAJ CLAUDE.md            │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ### Interface Web
 
 ```bash
-cd ~/mcp-claude-mem-local && python3 -m http.server 8080
+cd ~/claude-memory-local && python3 -m http.server 8080
 # Ouvrir http://localhost:8080/viewer.html
 ```
 
@@ -146,30 +154,27 @@ cd ~/mcp-claude-mem-local && python3 -m http.server 8080
 
 | Server | Usage | Status |
 |--------|-------|--------|
-| **mcp-claude-mem-local** | Mémoire persistante locale | ✅ Active |
-| **context7** | Documentation librairies | ✅ Active |
-| **sequential-thinking** | Analyse complexe | ✅ Active |
+| **claude-memory-local** | Mémoire persistante locale | ✅ Active |
+| **[votre-mcp-server]** | [Description] | ⬚ À configurer |
 
-### MCP-Claude-mem-local (Mémoire)
+### Claude-Memory-Local (Mémoire)
 
 **Déclencheurs automatiques:**
 - Début de session → `retrieve_memories`
 - Après bugfix/décision/feature → `store_memory`
 - Fin de session → `store_memory` + mise à jour contexte
 
-### Context7 (Documentation)
+### Autres MCP Servers
+
+Ajoutez ici vos MCP servers et leurs déclencheurs automatiques.
+
+```
+### [Nom du MCP Server]
 
 **Déclencheurs automatiques:**
-- Import de librairie (`import`, `from`)
-- Questions sur frameworks (React, Next.js, etc.)
-- Patterns officiels
-
-### Sequential Thinking (Analyse)
-
-**Déclencheurs automatiques:**
-- Problème multi-composants (>3 fichiers)
-- Debugging complexe
-- Design architecture
+- [Trigger 1] → [Action]
+- [Trigger 2] → [Action]
+```
 
 ---
 
@@ -177,37 +182,69 @@ cd ~/mcp-claude-mem-local && python3 -m http.server 8080
 
 ```
 IF création_composant_UI THEN
-  → Skill: frontend-design
-  → MCP: context7
+  → Skill:
+  → Agent:
+  → MCP:
+  → FIN: store_memory category="feature"
 
 IF implémentation_feature THEN
-  → Skill: sc:implement
-  → MCP: context7
+  → Skill:
+  → Agent:
+  → MCP:
   → FIN: store_memory category="feature"
 
 IF design_architecture THEN
-  → Skill: sc:design
-  → MCP: sequential-thinking
+  → Skill:
+  → Agent:
+  → MCP:
   → FIN: store_memory category="decision"
 
 IF bug_ou_problème THEN
-  → Skill: sc:troubleshoot
-  → MCP: sequential-thinking
+  → Skill:
+  → Agent:
+  → MCP:
   → FIN: store_memory category="bugfix"
 
+IF tests THEN
+  → Skill:
+  → Agent:
+  → MCP:
+
 IF début_session THEN
-  → Skill: sc:load
-  → retrieve_memories
+  → Skill:
+  → retrieve_memories (contexte pertinent)
 
 IF fin_session THEN
-  → store_memory (enseignements)
-  → Skill: sc:save
+  → store_memory (enseignements importants)
+  → Skill:
+
+IF commande_git THEN
+  → Skill:
+  → Agent:
+  → MCP:
+
+IF tâche_complexe (>3 étapes) THEN
+  → Skill:
+  → Agent:
+  → MCP:
 
 IF découverte_importante THEN
   → store_memory category="discovery"
 
 IF refactoring THEN
   → store_memory category="refactor"
+
+IF pattern_identifié THEN
+  → store_memory category="pattern"
+
+IF préférence_utilisateur THEN
+  → store_memory category="preference"
+
+IF leçon_apprise THEN
+  → store_memory category="learning"
+
+IF solution_erreur_spécifique THEN
+  → store_memory category="error_solution"
 ```
 
 ---
@@ -226,17 +263,18 @@ IF refactoring THEN
 
 | Commande | Action |
 |----------|--------|
-| `status` | Afficher tâche courante |
-| `go` / `lance` | Lancer la tâche |
-| `/sc:load` | Charger contexte projet |
-| `/sc:save` | Sauvegarder contexte |
+| `retrieve_memories` | Charger contexte pertinent |
+| `store_memory` | Sauvegarder un enseignement |
+| `list_memories` | Voir mémoires récentes |
+| `memory_stats` | Statistiques mémoire |
+| `[vos skills]` | Ajoutez vos commandes ici |
 
 ---
 
-<mcp-claude-mem-local-context>
+<claude-memory-local-context>
 # Recent Activity
 
-<!-- This section is auto-generated by MCP-Claude-mem-local. Edit content outside the tags. -->
-<!-- Run: mcp-claude-mem-local-context /path/to/project -->
+<!-- This section is auto-generated by claude-memory-local. Edit content outside the tags. -->
+<!-- Pour mettre à jour: cd /chemin/projet && claude-context -->
 
-</mcp-claude-mem-local-context>
+</claude-memory-local-context>
