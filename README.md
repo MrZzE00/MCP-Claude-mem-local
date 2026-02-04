@@ -243,6 +243,10 @@ store_memory({
 | `discovery` | 🔵 | Learning, discovery |
 | `refactor` | 🟣 | Refactoring |
 | `change` | ⚪ | General change |
+| `pattern` | 🟤 | Reusable pattern identified |
+| `preference` | 🟡 | User preference |
+| `learning` | 📘 | Lesson learned |
+| `error_solution` | 🩹 | Solution to specific error |
 
 **New Feature: Per-folder CLAUDE.md**
 

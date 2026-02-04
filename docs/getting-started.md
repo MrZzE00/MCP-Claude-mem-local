@@ -380,6 +380,10 @@ Add to your `CLAUDE.md`:
 | `discovery` | Learning something new |
 | `refactor` | Code restructuring |
 | `change` | General modifications |
+| `pattern` | Reusable pattern identified |
+| `preference` | User preference |
+| `learning` | Lesson learned |
+| `error_solution` | Solution to specific error |
 ```
 
 ---

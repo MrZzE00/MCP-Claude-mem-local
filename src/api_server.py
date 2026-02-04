@@ -396,6 +396,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         .type-discovery { background: #3b82f6; }
         .type-refactor { background: #8b5cf6; }
         .type-change { background: #6b7280; }
+        .type-pattern { background: #92400e; }
+        .type-preference { background: #eab308; }
+        .type-learning { background: #0ea5e9; }
+        .type-error_solution { background: #f97316; }
         .memory-importance { color: #fbbf24; }
         .memory-similarity { color: #10b981; font-size: 0.85em; }
         .memory-summary { font-weight: 600; margin-bottom: 10px; color: #fff; }

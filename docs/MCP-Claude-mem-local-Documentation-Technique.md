@@ -411,6 +411,10 @@ CREATE INDEX idx_memories_created ON memories(created_at DESC);
 | Discovery | `discovery` | 🔵 | Apprentissage, découverte technique |
 | Refactor | `refactor` | 🟣 | Refactoring avec motivation |
 | Change | `change` | ⚪ | Modification générale |
+| Pattern | `pattern` | 🟤 | Pattern réutilisable identifié |
+| Preference | `preference` | 🟡 | Préférence utilisateur |
+| Learning | `learning` | 📘 | Enseignement, leçon apprise |
+| Error Solution | `error_solution` | 🩹 | Solution à une erreur spécifique |
 
 ---
 

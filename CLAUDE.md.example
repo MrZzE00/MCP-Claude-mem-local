@@ -39,6 +39,8 @@ The `claude-memory-local` MCP server provides persistent memory across sessions.
 | `change` | ⚪ | General changes |
 | `pattern` | 🟤 | Reusable patterns identified |
 | `preference` | 🟡 | User preferences |
+| `learning` | 📘 | Lessons learned, knowledge acquired |
+| `error_solution` | 🩹 | Solutions to specific errors |
 
 ### Recommended Workflow
 
@@ -126,6 +128,18 @@ IF découverte_importante THEN
 
 IF refactoring THEN
   → store_memory category="refactor"
+
+IF pattern_identifié THEN
+  → store_memory category="pattern"
+
+IF préférence_utilisateur THEN
+  → store_memory category="preference"
+
+IF leçon_apprise THEN
+  → store_memory category="learning"
+
+IF solution_erreur_spécifique THEN
+  → store_memory category="error_solution"
 ```
 
 ---

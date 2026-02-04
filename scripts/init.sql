@@ -35,8 +35,9 @@ CREATE TABLE IF NOT EXISTS memories (
     
     -- Constraints
     CONSTRAINT valid_category CHECK (category IN (
-        'bugfix', 'decision', 'feature', 'discovery', 
-        'refactor', 'change', 'learning', 'pattern', 'error_solution'
+        'bugfix', 'decision', 'feature', 'discovery',
+        'refactor', 'change', 'learning', 'pattern',
+        'error_solution', 'preference'
     )),
     CONSTRAINT valid_importance CHECK (importance_score >= 0 AND importance_score <= 1),
     CONSTRAINT valid_visibility CHECK (visibility IN ('personal', 'team', 'organization'))
