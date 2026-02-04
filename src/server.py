@@ -84,7 +84,7 @@ async def store_memory(
     
     Args:
         content: Le contenu complet de la memoire
-        category: Type de memoire (learning, pattern, preference, error_solution, decision, bugfix)
+        category: Type de memoire (bugfix, decision, feature, discovery, refactor, change, pattern, preference, learning, error_solution)
         summary: Resume court (auto-genere si absent)
         tags: Liste de tags pour le filtrage
         importance: Score d importance 0.0 a 1.0
