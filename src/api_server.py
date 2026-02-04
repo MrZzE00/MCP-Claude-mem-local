@@ -692,13 +692,13 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         function escapeAttr(str) {
             if (!str) return '';
             return str
-                .replace(/\\/g, '\\\\')
-                .replace(/'/g, "\\'")
-                .replace(/"/g, '\\"')
-                .replace(/</g, '\\x3c')
-                .replace(/>/g, '\\x3e')
-                .replace(/\n/g, '\\n')
-                .replace(/\r/g, '\\r');
+                .replace(/\\\\/g, '\\\\\\\\')
+                .replace(/'/g, "\\\\'")
+                .replace(/"/g, '\\\\"')
+                .replace(/</g, '\\\\x3c')
+                .replace(/>/g, '\\\\x3e')
+                .replace(/\\n/g, '\\\\n')
+                .replace(/\\r/g, '\\\\r');
         }
 
         function formatDate(iso) {
