@@ -124,21 +124,22 @@ Query → Claude Code → MCP retrieve_memories
 
 | Logiciel | Version | Installation |
 |----------|---------|--------------|
-| **Docker** | 24.0+ | https://docker.com/download |
 | **Python** | 3.11+ | `brew install python@3.13` |
+| **PostgreSQL** | 16+ | `brew install postgresql@17` |
+| **pgvector** | 0.7+ | `brew install pgvector` |
 | **Ollama** | 0.15+ | https://ollama.com/download |
 | **Claude Code** | Latest | Anthropic |
 
 ### 2.3 Vérification
 
 ```bash
-# Docker
-docker --version
-# Docker version 27.x.x
-
 # Python
 python3 --version
 # Python 3.13.x
+
+# PostgreSQL
+pg_isready
+# localhost:5432 - accepting connections
 
 # Ollama
 ollama --version
@@ -179,56 +180,55 @@ pip install mcp asyncpg httpx python-dotenv
 
 #### Étape 3 : PostgreSQL + pgvector
 
-```bash
-# Créer le dossier de données
-mkdir -p ~/mcp-claude-mem-local/data/postgres
+**macOS (Homebrew) :**
 
-# Lancer PostgreSQL
-docker run -d \
-  --name mcp-claude-mem-local-postgres \
-  -e POSTGRES_DB=mcp-claude-mem-local \
-  -e POSTGRES_USER=mcp-claude-mem-local \
-  -e POSTGRES_PASSWORD=YOUR_SECURE_PASSWORD \    # Generate with: openssl rand -base64 32
-  -v ~/mcp-claude-mem-local/data/postgres:/var/lib/postgresql/data \
-  -p 5432:5432 \
-  pgvector/pgvector:pg16
+```bash
+# Installer PostgreSQL 17 avec pgvector
+brew install postgresql@17 pgvector
+
+# Démarrer PostgreSQL (auto-start au boot)
+brew services start postgresql@17
+
+# Créer l'utilisateur et la base
+createuser -s claude
+psql -c "ALTER USER claude PASSWORD 'YOUR_SECURE_PASSWORD';"    # Generate with: openssl rand -base64 32
+createdb -O claude claude_memory
+
+# Activer pgvector
+psql -d claude_memory -c "CREATE EXTENSION IF NOT EXISTS vector;"
+```
+
+**Linux (apt) :**
+
+```bash
+# Installer PostgreSQL
+sudo apt install postgresql-16 postgresql-16-pgvector
+
+# Démarrer PostgreSQL
+sudo systemctl start postgresql
+sudo systemctl enable postgresql
+
+# Créer l'utilisateur et la base
+sudo -u postgres createuser -s claude
+sudo -u postgres psql -c "ALTER USER claude PASSWORD 'YOUR_SECURE_PASSWORD';"
+sudo -u postgres createdb -O claude claude_memory
+
+# Activer pgvector
+sudo -u postgres psql -d claude_memory -c "CREATE EXTENSION IF NOT EXISTS vector;"
 ```
 
 #### Étape 4 : Initialiser le schéma
 
 ```bash
-docker exec mcp-claude-mem-local-postgres psql -U mcp-claude-mem-local -d mcp-claude-mem-local -c "
-CREATE EXTENSION IF NOT EXISTS vector;
-
-CREATE TABLE IF NOT EXISTS memories (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    content TEXT NOT NULL,
-    summary TEXT,
-    category VARCHAR(50) NOT NULL,
-    tags TEXT[],
-    project_context VARCHAR(255),
-    embedding vector(768),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    last_accessed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    access_count INTEGER DEFAULT 0,
-    importance_score FLOAT DEFAULT 0.5
-);
-
-CREATE TABLE IF NOT EXISTS user_prompts (
-    id SERIAL PRIMARY KEY,
-    session_id TEXT,
-    prompt_number INTEGER,
-    prompt_text TEXT NOT NULL,
-    embedding vector(768),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE INDEX idx_memories_embedding ON memories USING hnsw (embedding vector_cosine_ops);
-CREATE INDEX idx_memories_category ON memories(category);
-CREATE INDEX idx_memories_project ON memories(project_context);
-CREATE INDEX idx_prompts_embedding ON user_prompts USING hnsw (embedding vector_cosine_ops);
-"
+# Utiliser le script d'initialisation
+psql -U claude -d claude_memory -f ~/mcp-claude-mem-local/scripts/init.sql
 ```
+
+Le script `scripts/init.sql` crée :
+- Table `memories` avec colonnes embedding vector(768)
+- Table `user_prompts` pour l'historique des prompts
+- Index HNSW pour la recherche vectorielle
+- Vues statistiques
 
 #### Étape 5 : Ollama + Modèle d'embeddings
 
@@ -558,10 +558,70 @@ plugin/
 ├── hooks/
 │   └── hooks.json         # Configuration des hooks
 └── scripts/
-    └── context-hook.py    # Script d'injection
+    ├── context-hook.py    # Script d'injection CLAUDE.md
+    └── capture-prompt.py  # Capture automatique des prompts
 ```
 
-### 7.2 hooks.json
+### 7.2 UserPromptSubmit — Capture automatique des prompts
+
+Le hook `UserPromptSubmit` capture automatiquement chaque prompt utilisateur pour la recherche sémantique.
+
+#### Fonctionnement
+
+1. **Déclenchement** : À chaque prompt soumis par l'utilisateur
+2. **Entrée** : JSON via stdin avec `session_id`, `prompt`, `cwd`
+3. **Traitement** : Extraction projet, génération embedding, stockage
+4. **Sortie** : Exit 0 (ne bloque jamais Claude)
+
+#### Configuration
+
+Dans `~/.claude/settings.json` :
+
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "type": "command",
+        "command": "~/claude-memory-local/venv/bin/python3 ~/claude-memory-local/plugins/scripts/capture-prompt.py",
+        "timeout": 10,
+        "failOnError": false
+      }
+    ]
+  }
+}
+```
+
+#### Script capture-prompt.py
+
+| Fonctionnalité | Description |
+|----------------|-------------|
+| **Extraction projet** | Depuis CLAUDE.md ou nom de dossier |
+| **Validation** | Ignore prompts vides ou < 3 caractères |
+| **Embedding** | Via Ollama (timeout 5s, fallback sans embedding) |
+| **Stockage** | Table `user_prompts` avec numéro de séquence |
+
+#### Flux de données
+
+```
+User prompt → Claude Code → UserPromptSubmit hook
+                              │
+                              ▼ JSON stdin
+                    ┌─────────────────┐
+                    │capture-prompt.py│
+                    └────────┬────────┘
+                             │
+              ┌──────────────┼──────────────┐
+              ▼                             ▼
+       ┌───────────┐               ┌─────────────┐
+       │  Ollama   │               │ PostgreSQL  │
+       │ embedding │               │user_prompts │
+       └───────────┘               └─────────────┘
+```
+
+> 📖 Documentation complète : [docs/hooks-prompts-capture.md](./hooks-prompts-capture.md)
+
+### 7.4 hooks.json (autres hooks)
 
 ```json
 {
@@ -605,7 +665,7 @@ plugin/
 }
 ```
 
-### 7.3 Context Hook
+### 7.5 Context Hook
 
 Le script `context-hook.py` :
 
@@ -630,7 +690,7 @@ Le script `context-hook.py` :
 </mcp-claude-mem-local-context>
 ```
 
-### 7.4 Utilisation manuelle
+### 7.6 Utilisation manuelle
 
 ```bash
 # Depuis le dossier du projet
@@ -792,16 +852,18 @@ python ~/mcp-claude-mem-local/migrate.py
 ### 11.1 Démarrage des services
 
 ```bash
-# Docker Desktop (PostgreSQL)
-open -a Docker
+# PostgreSQL (macOS Homebrew - auto-start)
+brew services start postgresql@17
 
 # Vérifier PostgreSQL
-docker ps | grep mcp-claude-mem-local-postgres
+pg_isready
+# localhost:5432 - accepting connections
 
-# Démarrer si arrêté
-docker start mcp-claude-mem-local-postgres
+# Ollama (démarrage manuel requis)
+open -a Ollama
+# ou: ollama serve &
 
-# Ollama (auto-démarré sur macOS)
+# Vérifier Ollama
 ollama list
 ```
 
@@ -809,48 +871,51 @@ ollama list
 
 ```bash
 # Backup complet
-docker exec mcp-claude-mem-local-postgres pg_dump -U mcp-claude-mem-local mcp-claude-mem-local > \
+pg_dump -U claude claude_memory > \
   ~/mcp-claude-mem-local/backups/backup-$(date +%Y%m%d-%H%M%S).sql
 
 # Backup automatique (crontab)
-0 2 * * * docker exec mcp-claude-mem-local-postgres pg_dump -U mcp-claude-mem-local mcp-claude-mem-local > ~/mcp-claude-mem-local/backups/backup-$(date +\%Y\%m\%d).sql
+0 2 * * * pg_dump -U claude claude_memory > ~/mcp-claude-mem-local/backups/backup-$(date +\%Y\%m\%d).sql
 ```
 
 ### 11.3 Restauration
 
 ```bash
-docker exec -i mcp-claude-mem-local-postgres psql -U mcp-claude-mem-local mcp-claude-mem-local < backup-20260128.sql
+psql -U claude claude_memory < backup-20260128.sql
 ```
 
 ### 11.4 Nettoyage
 
 ```bash
 # Supprimer les mémoires de plus de 6 mois non consultées
-docker exec mcp-claude-mem-local-postgres psql -U mcp-claude-mem-local -d mcp-claude-mem-local -c "
-DELETE FROM memories 
+psql -U claude -d claude_memory -c "
+DELETE FROM memories
 WHERE last_accessed_at < NOW() - INTERVAL '6 months'
   AND access_count < 2;
 "
 
 # Vacuum (récupérer l'espace)
-docker exec mcp-claude-mem-local-postgres psql -U mcp-claude-mem-local -d mcp-claude-mem-local -c "VACUUM ANALYZE;"
+psql -U claude -d claude_memory -c "VACUUM ANALYZE;"
 ```
 
 ### 11.5 Monitoring
 
 ```bash
 # Taille de la base
-docker exec mcp-claude-mem-local-postgres psql -U mcp-claude-mem-local -d mcp-claude-mem-local -c "
-SELECT pg_size_pretty(pg_database_size('mcp-claude-mem-local'));
+psql -U claude -d claude_memory -c "
+SELECT pg_size_pretty(pg_database_size('claude_memory'));
 "
 
 # Nombre de mémoires par catégorie
-docker exec mcp-claude-mem-local-postgres psql -U mcp-claude-mem-local -d mcp-claude-mem-local -c "
+psql -U claude -d claude_memory -c "
 SELECT category, COUNT(*) FROM memories GROUP BY category ORDER BY COUNT(*) DESC;
 "
 
-# Logs PostgreSQL
-docker logs mcp-claude-mem-local-postgres --tail 50
+# Logs PostgreSQL (macOS Homebrew)
+tail -50 /opt/homebrew/var/log/postgresql@17.log
+
+# Logs PostgreSQL (Linux)
+sudo journalctl -u postgresql --tail 50
 ```
 
 ---
@@ -861,8 +926,8 @@ docker logs mcp-claude-mem-local-postgres --tail 50
 
 ```bash
 # 1. Vérifier PostgreSQL
-docker ps | grep mcp-claude-mem-local-postgres
-# Si absent: docker start mcp-claude-mem-local-postgres
+pg_isready
+# Si erreur: brew services start postgresql@17
 
 # 2. Vérifier Ollama
 ollama list
@@ -891,15 +956,12 @@ asyncio.run(test())
 ### 12.2 Erreur "role does not exist"
 
 ```bash
-# Un autre PostgreSQL tourne sur le port 5432
+# Créer l'utilisateur s'il n'existe pas
+createuser -s claude
+psql -c "ALTER USER claude PASSWORD 'your_secure_password';"
+
+# Vérifier quel PostgreSQL tourne sur le port 5432
 lsof -i :5432
-
-# Arrêter PostgreSQL local (Homebrew)
-brew services stop postgresql
-
-# Ou utiliser un autre port
-docker run -d --name mcp-claude-mem-local-postgres -p 5433:5432 ...
-# Modifier .env: PG_PORT=5433
 ```
 
 ### 12.3 Erreur "expected str, got list" (embeddings)
@@ -998,17 +1060,17 @@ La variable `OLLAMA_HOST` est validée pour prévenir les attaques Server-Side R
 
 ```bash
 # PostgreSQL écoute uniquement sur localhost par défaut
-# Pour une utilisation en équipe, configurer SSL/TLS
+# Pour une utilisation en équipe, configurer SSL/TLS dans postgresql.conf
 
-# Vérifier les ports exposés
-docker port mcp-claude-mem-local-postgres
+# Vérifier les ports utilisés
+lsof -i :5432
 ```
 
 ### 13.9 Backup chiffré
 
 ```bash
 # Backup chiffré avec GPG
-docker exec mcp-claude-mem-local-postgres pg_dump -U claude claude_memory | \
+pg_dump -U claude claude_memory | \
   gpg --symmetric --cipher-algo AES256 > backup.sql.gpg
 ```
 
@@ -1024,22 +1086,22 @@ mcp-claude-mem-local/
 │   ├── server.py          # MCP Server
 │   ├── web_ui.py          # Générateur UI
 │   └── embeddings.py      # Abstraction embeddings
-├── plugin/
+├── plugins/
 │   ├── hooks/
 │   │   └── hooks.json
 │   └── scripts/
-│       └── context-hook.py
+│       ├── context-hook.py
+│       └── capture-prompt.py
+├── scripts/
+│   ├── init.sql           # Schéma de base de données
+│   └── security-check.sh  # Script de vérification sécurité
 ├── tests/
 │   ├── test_server.py
 │   ├── test_embeddings.py
 │   └── test_hooks.py
 ├── docs/
-│   ├── getting-started.md
-│   ├── architecture.md
-│   └── api-reference.md
-├── docker/
-│   ├── Dockerfile
-│   └── docker-compose.yml
+│   ├── MCP-Claude-mem-local-Documentation-Technique.md
+│   └── hooks-prompts-capture.md
 ├── .env.example
 ├── requirements.txt
 ├── README.md

@@ -26,7 +26,7 @@ This project and everyone participating in it is governed by our commitment to c
 ### Prerequisites
 
 - Python 3.11+
-- Docker & Docker Compose
+- PostgreSQL 16+ with pgvector extension (Homebrew or apt)
 - Ollama
 - Git
 
@@ -64,8 +64,11 @@ pip install -r requirements-dev.txt
 ### 3. Start Services
 
 ```bash
-# Start PostgreSQL
-docker-compose up -d postgres
+# Start PostgreSQL (macOS with Homebrew)
+brew services start postgresql@17
+
+# Or on Linux
+sudo systemctl start postgresql
 
 # Pull embedding model
 ollama pull nomic-embed-text
@@ -74,7 +77,13 @@ ollama pull nomic-embed-text
 ### 4. Initialize Database
 
 ```bash
-docker exec synaptic-postgres psql -U synaptic -d synaptic -f docker/init.sql
+# Create database and user
+createdb claude_memory
+createuser claude
+psql -c "ALTER USER claude PASSWORD 'your_secure_password';"
+
+# Initialize schema
+psql -U claude -d claude_memory -f scripts/init.sql
 ```
 
 ### 5. Run Tests
