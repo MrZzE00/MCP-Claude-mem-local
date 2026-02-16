@@ -4,6 +4,10 @@ Persistent local memory system for Claude Code using PostgreSQL + pgvector for s
 
 **Zero API tokens consumed** — All embeddings are generated locally with Ollama.
 
+Every developer (or Ai Dev Tools) who leaves takes their context with them — architecture decisions, resolved bugs, proven patterns. We built a persistent memory system for augmented development: every AI session automatically stores decisions, solutions and errors in a local database with semantic search. 1,483 observations in production, zero tokens sent to the cloud, cognitive scoring that surfaces what's relevant and buries the noise. A dev joining a project types a question and retrieves past trade-offs and existing fixes in 200ms — instead of rediscovering or interrupting a colleague. 100% sovereign, air-gap compatible.
+
+Beyond the individual, it's the organization that learns. Every team produces technical decisions daily — solutions to complex problems, field-tested patterns. Cognitive memory turns these into collective capital — indexed, semantically searchable, available the moment another dev needs it. An architecture trade-off made in January feeds context to a developer joining the project in June. A fix validated on project A saves three hours of investigation on project B. Onboarding accelerates, post-mortems become reusable assets, and the organization's knowledge grows with every augmented dev session.
+
 ---
 
 ## Table of Contents
