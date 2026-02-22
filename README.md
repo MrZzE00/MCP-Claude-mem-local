@@ -59,7 +59,7 @@ Beyond the individual, it's the organization that learns. Every team produces te
 |-----------|------|------|------------|
 | **PostgreSQL 17 + pgvector** | Memory storage + vector search (Homebrew) | 5432 | ✅ Yes |
 | **Ollama** | Local embedding generation (nomic-embed-text) | 11434 | ❌ Manual |
-| **MCP Server** | Interface with Claude Code (5 tools) | stdio | - |
+| **MCP Server** | Interface with Claude Code (6 tools) | stdio | - |
 | **Plugin hooks** | Auto-inject context into CLAUDE.md + capture prompts | - | - |
 | **Web Interface** | Memory and prompt visualization | 8080 | - |
 
@@ -336,7 +336,7 @@ retrieve_memories({
 })
 ```
 
-Returns relevant memories via semantic search (cosine similarity).
+Returns relevant memories ranked by ACT-R cognitive activation (frequency + recency + semantic similarity + tag association) or cosine similarity if ACT-R is disabled.
 
 #### 3. `list_memories` — List recent memories
 
@@ -366,6 +366,54 @@ delete_memory({
   memory_id: "uuid-of-memory"
 })
 ```
+
+#### 6. `memory_forgetting_cycle` — Strategic forgetting
+
+```typescript
+memory_forgetting_cycle()
+```
+
+Recalculates activation for all memories and transitions their status:
+- **Active** (A > 0): readily retrievable
+- **Dormant** (-2 < A <= 0): retrievable but deprioritized
+- **Forgotten** (A <= -2): excluded from default results (never deleted)
+
+---
+
+### ACT-R Cognitive Scoring
+
+**New in v2.0** — Memory retrieval is now powered by the ACT-R cognitive architecture (Honda et al., HAI '25), replacing simple cosine similarity ranking with a composite cognitive scoring formula:
+
+```
+A(m) = B(m) + w * cosine_similarity + S(m) + epsilon
+```
+
+| Component | Formula | Description |
+|-----------|---------|-------------|
+| **B(m)** | `ln(Sum(t - ti)^-d)` | Base-level activation: frequency + power-law decay |
+| **w * cosine** | `11.0 * similarity` | Weighted semantic similarity |
+| **S(m)** | `Sum Wj(S - ln(fan_j))` | Spreading activation via shared tags |
+| **epsilon** | `~ N(0, 1.2)` | Gaussian noise for probabilistic variability |
+
+**Key benefits:**
+- Frequently accessed memories naturally rise in ranking
+- Old unused memories gradually fade (without deletion)
+- Tag associations boost contextually related memories
+- Probabilistic variability prevents static ranking bias
+- Query type adaptation (debugging queries prioritize semantic precision)
+
+**Configuration** (in `.env`):
+
+```env
+USE_ACTR_SCORING=true       # Master switch (false = original cosine scoring)
+ACTR_DECAY_D=0.5            # Power-law decay rate
+ACTR_WEIGHT_W=11.0          # Semantic similarity weight
+ACTR_NOISE_SIGMA=1.2        # Gaussian noise standard deviation
+ACTR_THRESHOLD_TAU=-2.0     # Retrieval threshold
+ACTR_SPREADING_S=2.0        # Spreading activation strength
+```
+
+See [docs/MIGRATION.md](docs/MIGRATION.md) for upgrade instructions from previous versions.
 
 ---
 

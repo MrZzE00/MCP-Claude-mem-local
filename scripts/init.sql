@@ -27,7 +27,13 @@ CREATE TABLE IF NOT EXISTS memories (
     -- Usage statistics
     access_count INTEGER DEFAULT 0,
     importance_score FLOAT DEFAULT 0.5,
-    
+
+    -- ACT-R Cognitive Scoring
+    access_timestamps TIMESTAMP WITH TIME ZONE[] DEFAULT '{}',
+    memory_status VARCHAR(10) DEFAULT 'active',
+    actr_activation FLOAT,
+    activation_updated_at TIMESTAMP WITH TIME ZONE,
+
     -- Team collaboration (future)
     user_id VARCHAR(255),
     team_id VARCHAR(255),
@@ -40,6 +46,7 @@ CREATE TABLE IF NOT EXISTS memories (
         'error_solution', 'preference'
     )),
     CONSTRAINT valid_importance CHECK (importance_score >= 0 AND importance_score <= 1),
+    CONSTRAINT valid_memory_status CHECK (memory_status IN ('active', 'dormant', 'forgotten')),
     CONSTRAINT valid_visibility CHECK (visibility IN ('personal', 'team', 'organization'))
 );
 
@@ -72,6 +79,8 @@ CREATE INDEX IF NOT EXISTS idx_memories_importance ON memories(importance_score 
 CREATE INDEX IF NOT EXISTS idx_memories_user ON memories(user_id);
 CREATE INDEX IF NOT EXISTS idx_memories_team ON memories(team_id);
 CREATE INDEX IF NOT EXISTS idx_memories_visibility ON memories(visibility);
+CREATE INDEX IF NOT EXISTS idx_memories_status ON memories(memory_status);
+CREATE INDEX IF NOT EXISTS idx_memories_access_timestamps ON memories USING GIN (access_timestamps);
 
 -- Full-text search index (optional, for keyword search)
 CREATE INDEX IF NOT EXISTS idx_memories_content_fts 
@@ -89,14 +98,18 @@ $$ LANGUAGE plpgsql;
 
 -- Statistics view
 CREATE OR REPLACE VIEW memory_stats AS
-SELECT 
+SELECT
     COUNT(*) as total_memories,
     COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '7 days') as memories_this_week,
     COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '1 day') as memories_today,
     COUNT(DISTINCT category) as categories_used,
     COUNT(DISTINCT project_context) as projects,
     AVG(importance_score) as avg_importance,
-    MAX(access_count) as max_access_count
+    MAX(access_count) as max_access_count,
+    COUNT(*) FILTER (WHERE memory_status = 'active') as active_memories,
+    COUNT(*) FILTER (WHERE memory_status = 'dormant') as dormant_memories,
+    COUNT(*) FILTER (WHERE memory_status = 'forgotten') as forgotten_memories,
+    AVG(actr_activation) FILTER (WHERE actr_activation IS NOT NULL) as avg_activation
 FROM memories;
 
 -- Category statistics view
@@ -109,6 +122,13 @@ SELECT
 FROM memories
 GROUP BY category
 ORDER BY count DESC;
+
+-- Schema migration tracking
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    version INTEGER PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    applied_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
 
 -- Grant permissions (for team mode)
 -- GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO synaptic;

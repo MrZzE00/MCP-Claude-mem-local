@@ -11,6 +11,10 @@ import httpx
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 
+# ACT-R cognitive scoring
+from actr_scoring import ACTRConfig, score_and_rank_memories
+from forgetting import run_forgetting_cycle
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -31,6 +35,9 @@ if not PG_PASSWORD:
     raise RuntimeError("PG_PASSWORD environment variable is required. Set it in .env file.")
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
+
+# Load ACT-R configuration
+actr_config = ACTRConfig.from_env()
 
 # Initialiser le serveur MCP
 mcp = FastMCP("claude-memory-local")
@@ -119,17 +126,19 @@ async def retrieve_memories(
     query: str,
     max_results: int = 5,
     category: str = None,
-    min_similarity: float = 0.5
+    min_similarity: float = 0.5,
+    include_forgotten: bool = False
 ) -> str:
     """
     Recupere les memoires pertinentes pour une requete.
-    
+
     Args:
         query: La requete de recherche
         max_results: Nombre maximum de resultats (defaut: 5)
         category: Filtrer par categorie (optionnel)
         min_similarity: Similarite minimum 0.0 a 1.0 (defaut: 0.5)
-    
+        include_forgotten: Inclure les memoires oubliees (defaut: false)
+
     Returns:
         Les memoires pertinentes formatees
     """
@@ -139,50 +148,100 @@ async def retrieve_memories(
 
         db = await get_pool()
         async with db.acquire() as conn:
+            # Stage 1: SQL pre-filter by cosine similarity (pgvector HNSW)
+            prefetch = actr_config.prefetch_limit if actr_config.use_actr else max_results
+            status_filter = "" if include_forgotten else "AND (memory_status IS NULL OR memory_status != 'forgotten')"
+
             if category:
-                rows = await conn.fetch("""
+                rows = await conn.fetch(f"""
                     SELECT
                         id, content, summary, category, tags,
-                        importance_score,
+                        importance_score, created_at,
+                        access_timestamps, memory_status,
                         1 - (embedding <=> $1::vector) as sim
                     FROM memories
                     WHERE category = $4
                       AND 1 - (embedding <=> $1::vector) >= $2
-                    ORDER BY (1 - (embedding <=> $1::vector)) * importance_score DESC
+                      {status_filter}
+                    ORDER BY (1 - (embedding <=> $1::vector)) DESC
                     LIMIT $3
-                """, embedding_str, min_similarity, max_results, category)
+                """, embedding_str, min_similarity, prefetch, category)
             else:
-                rows = await conn.fetch("""
+                rows = await conn.fetch(f"""
                     SELECT
                         id, content, summary, category, tags,
-                        importance_score,
+                        importance_score, created_at,
+                        access_timestamps, memory_status,
                         1 - (embedding <=> $1::vector) as sim
                     FROM memories
                     WHERE 1 - (embedding <=> $1::vector) >= $2
-                    ORDER BY (1 - (embedding <=> $1::vector)) * importance_score DESC
+                      {status_filter}
+                    ORDER BY (1 - (embedding <=> $1::vector)) DESC
                     LIMIT $3
-                """, embedding_str, min_similarity, max_results)
-            
+                """, embedding_str, min_similarity, prefetch)
+
             if not rows:
                 return "Aucune memoire pertinente trouvee."
-            
-            ids = [row['id'] for row in rows]
+
+            # Stage 2: ACT-R re-ranking (or fallback to original scoring)
+            if actr_config.use_actr:
+                # Build tag fan counts for spreading activation
+                tag_counts = await conn.fetch("""
+                    SELECT unnest(tags) as tag, COUNT(*) as cnt
+                    FROM memories
+                    WHERE tags IS NOT NULL AND array_length(tags, 1) > 0
+                    GROUP BY tag
+                """)
+                tag_fan = {r["tag"].lower(): r["cnt"] for r in tag_counts}
+
+                # Convert asyncpg Records to dicts for scoring
+                row_dicts = [dict(r) for r in rows]
+
+                scored = score_and_rank_memories(
+                    rows=row_dicts,
+                    query_tags=None,
+                    tag_fan_counts=tag_fan,
+                    config=actr_config,
+                    query=query,
+                    category=category,
+                )
+                final_rows = scored[:max_results]
+            else:
+                # Fallback: original scoring (cosine * importance)
+                row_dicts = [dict(r) for r in rows]
+                row_dicts.sort(
+                    key=lambda r: r["sim"] * r["importance_score"],
+                    reverse=True,
+                )
+                final_rows = row_dicts[:max_results]
+
+            # Record access timestamps for retrieved memories
+            ids = [row['id'] for row in final_rows]
             await conn.execute("""
-                UPDATE memories 
-                SET last_accessed_at = NOW(), access_count = access_count + 1
+                UPDATE memories
+                SET last_accessed_at = NOW(),
+                    access_count = access_count + 1,
+                    access_timestamps = array_append(
+                        COALESCE(access_timestamps, '{}'),
+                        NOW()
+                    )
                 WHERE id = ANY($1)
             """, ids)
-        
+
+        # Format results
         results = []
-        for row in rows:
+        for row in final_rows:
+            activation_info = ""
+            if actr_config.use_actr and "activation_score" in row:
+                activation_info = f", activation: {row['activation_score']:.2f}"
             results.append(f"""
 ---
-**[{row['category']}]** (similarite: {row['sim']:.2f}, importance: {row['importance_score']:.1f})
+**[{row['category']}]** (similarite: {row['sim']:.2f}, importance: {row['importance_score']:.1f}{activation_info})
 {row['content']}
 Tags: {', '.join(row['tags']) if row['tags'] else 'aucun'}
 """)
-        
-        return f"## {len(rows)} memoire(s) trouvee(s):\n" + "\n".join(results)
+
+        return f"## {len(final_rows)} memoire(s) trouvee(s):\n" + "\n".join(results)
 
     except Exception as e:
         logger.error(f"retrieve_memories failed: {e}", exc_info=True)
@@ -273,41 +332,61 @@ async def delete_memory(memory_id: str) -> str:
 async def memory_stats() -> str:
     """
     Affiche les statistiques de la base de memoires.
-    
+
     Returns:
-        Statistiques detaillees
+        Statistiques detaillees incluant indicateurs ACT-R
     """
     try:
         db = await get_pool()
         async with db.acquire() as conn:
             total = await conn.fetchval("SELECT COUNT(*) FROM memories")
             by_category = await conn.fetch("""
-                SELECT category, COUNT(*) as count 
-                FROM memories 
-                GROUP BY category 
+                SELECT category, COUNT(*) as count
+                FROM memories
+                GROUP BY category
                 ORDER BY count DESC
             """)
             recent = await conn.fetchval("""
-                SELECT COUNT(*) FROM memories 
+                SELECT COUNT(*) FROM memories
                 WHERE created_at > NOW() - INTERVAL '7 days'
             """)
             most_accessed = await conn.fetch("""
-                SELECT summary, access_count 
-                FROM memories 
-                ORDER BY access_count DESC 
+                SELECT summary, access_count
+                FROM memories
+                ORDER BY access_count DESC
                 LIMIT 5
             """)
-        
+
+            # ACT-R status counts
+            by_status = await conn.fetch("""
+                SELECT COALESCE(memory_status, 'active') as status, COUNT(*) as count
+                FROM memories
+                GROUP BY COALESCE(memory_status, 'active')
+                ORDER BY count DESC
+            """)
+            avg_activation = await conn.fetchval("""
+                SELECT AVG(actr_activation) FROM memories
+                WHERE actr_activation IS NOT NULL
+            """)
+
         stats = f"""## Statistiques Memoire
 
 **Total**: {total} memoires
 **Cette semaine**: {recent} nouvelles
+**Scoring**: {'ACT-R cognitif' if actr_config.use_actr else 'Cosine classique'}
 
 ### Par categorie:
 """
         for row in by_category:
             stats += f"- {row['category']}: {row['count']}\n"
-        
+
+        stats += "\n### Par statut memoire:\n"
+        for row in by_status:
+            stats += f"- {row['status']}: {row['count']}\n"
+
+        if avg_activation is not None:
+            stats += f"\n**Activation moyenne**: {avg_activation:.2f}\n"
+
         stats += "\n### Plus consultees:\n"
         for row in most_accessed:
             if row['summary']:
@@ -318,6 +397,28 @@ async def memory_stats() -> str:
     except Exception as e:
         logger.error(f"memory_stats failed: {e}", exc_info=True)
         return "Erreur: impossible de recuperer les statistiques. Verifiez la connexion a la base de donnees."
+
+
+@mcp.tool()
+async def memory_forgetting_cycle() -> str:
+    """
+    Execute un cycle d'oubli strategique ACT-R.
+
+    Recalcule l'activation de toutes les memoires et met a jour
+    leurs statuts: active (A>0), dormant (-2<A<=0), forgotten (A<=-2).
+    Les memoires forgotten restent en base mais sont exclues des
+    resultats par defaut.
+
+    Returns:
+        Resume des transitions effectuees
+    """
+    try:
+        db = await get_pool()
+        result = await run_forgetting_cycle(db, actr_config)
+        return result
+    except Exception as e:
+        logger.error(f"memory_forgetting_cycle failed: {e}", exc_info=True)
+        return "Erreur: impossible d'executer le cycle d'oubli. Verifiez la connexion."
 
 
 if __name__ == "__main__":
