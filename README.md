@@ -42,6 +42,16 @@ Your team's knowledge compounds across sessions instead of evaporating.
 
 ---
 
+## User Interface
+
+<div align="center">
+
+![Web Interface](docs/Screenshot-claude-memory-local.png)
+
+</div>
+
+---
+
 ## Quick Start
 
 ### 1. Clone and install
