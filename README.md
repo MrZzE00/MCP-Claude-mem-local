@@ -1,208 +1,69 @@
-# MCP-Claude-mem-local
+<div align="center">
 
-Persistent local memory system for Claude Code using PostgreSQL + pgvector for semantic search.
+# claude-memory-local
 
-**Zero API tokens consumed** — All embeddings are generated locally with Ollama.
+**Persistent local memory for AI coding assistants — zero cloud tokens, 100% private.**
 
-Every developer (or Ai Dev Tools) who leaves takes their context with them — architecture decisions, resolved bugs, proven patterns. We built a persistent memory system for augmented development: every AI session automatically stores decisions, solutions and errors in a local database with semantic search. 1,483 observations in production, zero tokens sent to the cloud, cognitive scoring that surfaces what's relevant and buries the noise. A dev joining a project types a question and retrieves past trade-offs and existing fixes in 200ms — instead of rediscovering or interrupting a colleague. 100% sovereign, air-gap compatible.
+[![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://python.org)
+[![MCP Server](https://img.shields.io/badge/MCP-Server-blue)](https://modelcontextprotocol.io)
+[![pgvector](https://img.shields.io/badge/pgvector-semantic_search-orange)](https://github.com/pgvector/pgvector)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-Beyond the individual, it's the organization that learns. Every team produces technical decisions daily — solutions to complex problems, field-tested patterns. Cognitive memory turns these into collective capital — indexed, semantically searchable, available the moment another dev needs it. An architecture trade-off made in January feeds context to a developer joining the project in June. A fix validated on project A saves three hours of investigation on project B. Onboarding accelerates, post-mortems become reusable assets, and the organization's knowledge grows with every augmented dev session.
+[Quick Start](#quick-start) · [MCP Tools](#mcp-tools) · [How It Works](#how-it-works) · [Configuration](#configuration) · [Documentation](#documentation)
 
----
-
-## Table of Contents
-
-- [Architecture](#architecture)
-- [Prerequisites](#prerequisites)
-- [Installation](#installation)
-- [Configuration](#configuration)
-- [Usage](#usage)
-  - [MCP Tools](#mcp-tools)
-  - [Automatic Prompt Capture](#automatic-prompt-capture)
-  - [Web Interface](#web-interface)
-  - [CLAUDE.md Integration](#claudemd-integration)
-- [Recommended Workflow](#recommended-workflow)
-- [Maintenance](#maintenance)
-- [Troubleshooting](#troubleshooting)
+</div>
 
 ---
 
-## Architecture
+## The Problem
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      Claude Code                             │
-│                          │                                   │
-│                    ┌─────▼─────┐                            │
-│                    │ MCP Server │ (5 tools)                 │
-│                    └─────┬─────┘                            │
-│                          │                                   │
-│         ┌────────────────┼────────────────┐                 │
-│         ▼                ▼                ▼                 │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐        │
-│  │ PostgreSQL  │  │   Ollama    │  │  Plugin     │        │
-│  │ + pgvector  │  │ (embeddings)│  │  (hooks)    │        │
-│  │ (Homebrew)  │  │             │  │             │        │
-│  └─────────────┘  └─────────────┘  └─────────────┘        │
-│         │                                    │              │
-│         ▼                                    ▼              │
-│  ┌─────────────┐                    ┌─────────────┐        │
-│  │  memories   │                    │  CLAUDE.md  │        │
-│  │  (table)    │                    │ (per-folder)│        │
-│  └─────────────┘                    └─────────────┘        │
-└─────────────────────────────────────────────────────────────┘
-```
+AI coding assistants forget everything between sessions. Architecture decisions, resolved bugs, proven patterns — gone. Every new session starts from zero. Developers repeat explanations, re-discover solutions, and lose the institutional knowledge that makes teams effective.
 
-### Components
+## The Solution
 
-| Component | Role | Port | Auto-start |
-|-----------|------|------|------------|
-| **PostgreSQL 17 + pgvector** | Memory storage + vector search (Homebrew) | 5432 | ✅ Yes |
-| **Ollama** | Local embedding generation (nomic-embed-text) | 11434 | ❌ Manual |
-| **MCP Server** | Interface with Claude Code (6 tools) | stdio | - |
-| **Plugin hooks** | Auto-inject context into CLAUDE.md + capture prompts | - | - |
-| **Web Interface** | Memory and prompt visualization | 8080 | - |
+**claude-memory-local** is a persistent memory system that runs entirely on your machine. Every decision, bugfix, and pattern is stored locally in PostgreSQL with semantic search powered by pgvector. Embeddings are generated locally with Ollama — **zero tokens sent to any cloud API**.
 
-### After a System Reboot
+Your team's knowledge compounds across sessions instead of evaporating.
 
-| Service | Behavior | Action Required |
-|---------|----------|-----------------|
-| **PostgreSQL** | Starts automatically via `brew services` | None |
-| **Ollama** | Does NOT start automatically (intentional) | Launch manually |
+---
 
-**Why Ollama requires manual start?** This is a deliberate design choice to keep human control over AI processes. Before using MCP-Claude-mem-local after a reboot, launch Ollama:
+## Features
+
+- **Semantic Search** — Find memories by meaning, not just keywords (pgvector + cosine similarity)
+- **ACT-R Cognitive Scoring** — Memories ranked like human cognition: frequent access rises, unused fades
+- **100% Local & Private** — PostgreSQL + Ollama on your machine, no data leaves your network
+- **Zero Token Cost** — Embeddings via local Ollama, no API calls consumed
+- **6 MCP Tools** — Store, retrieve, list, stats, delete, and forgetting cycle
+- **Automatic Prompt Capture** — Every prompt you submit is indexed for semantic search
+- **CLAUDE.md Injection** — Recent memories auto-injected into project context via hooks
+- **Web Interface** — Browse, search, and filter memories in your browser
+- **Multi-IDE Support** — Works with Claude Code, Cursor, VS Code, JetBrains, and more
+- **Strategic Forgetting** — Old unused memories fade gracefully without deletion
+
+---
+
+## Quick Start
+
+### 1. Clone and install
 
 ```bash
-# Option 1: Open Ollama.app (if installed)
-open -a Ollama
-
-# Option 2: Start via command line
-ollama serve &
-```
-
----
-
-## Prerequisites
-
-- **macOS** (Homebrew) or **Linux**
-- **Python 3.11+**
-- **Homebrew** (macOS) or apt/dnf (Linux)
-- **Claude Code** (with MCP support)
-
----
-
-## Installation
-
-### Quick Install
-
-```bash
-# Clone the repository
 git clone https://github.com/your-org/claude-memory-local.git
 cd claude-memory-local
-
-# Run the installer
 ./install.sh
 ```
 
-The installer will:
-1. Install PostgreSQL 17 + pgvector via Homebrew
-2. Create Python virtual environment
-3. Initialize database schema
-4. Install Ollama and download embedding model
-5. Configure Claude Code MCP server
+The installer handles PostgreSQL 17 + pgvector, Python venv, database schema, Ollama, and embedding model.
 
-After installation, **restart Claude Code** and the `claude-memory-local` MCP server will be available.
+### 2. Configure environment
 
-### Directory Structure
-
-```
-~/claude-memory-local/
-├── .env                    # Configuration
-├── venv/                   # Python virtual environment
-├── src/
-│   ├── server.py          # MCP server
-│   └── web_ui.py          # Web UI generator
-├── plugins/
-│   ├── hooks/
-│   │   └── hooks.json     # Hook configuration
-│   └── scripts/
-│       └── context-hook.py # Context injection script
-├── viewer.html            # Web interface
-└── start-server.sh        # Server launch script
+```bash
+cp .env.example .env
+# Edit .env with your PostgreSQL password (generate one: openssl rand -base64 32)
 ```
 
----
+### 3. Add MCP server to your IDE
 
-## Configuration
-
-### Environment Variables (`.env`)
-
-Copy `.env.example` to `.env` and configure:
-
-```env
-PG_HOST=localhost
-PG_PORT=5432
-PG_DATABASE=claude_memory
-PG_USER=claude
-PG_PASSWORD=YOUR_SECURE_PASSWORD    # Generate with: openssl rand -base64 32
-OLLAMA_HOST=http://localhost:11434
-EMBEDDING_MODEL=nomic-embed-text
-
-# Security (optional)
-API_KEY=                            # Set to require API key authentication
-RATE_LIMIT_REQUESTS=60              # Requests per minute (default: 60)
-RATE_LIMIT_WINDOW=60                # Rate limit window in seconds
-ALLOWED_ORIGINS=localhost:8080      # CORS allowed origins
-```
-
-> ⚠️ **Security**: Never commit `.env` with real credentials. Use strong passwords in production.
-
----
-
-## Security
-
-### API Key Authentication (Optional)
-
-Set `API_KEY` in `.env` to require authentication for all API endpoints:
-
-```env
-API_KEY=your-secret-api-key-here
-```
-
-When set, all requests must include the header: `X-API-Key: your-secret-api-key-here`
-
-### Rate Limiting
-
-Default: 60 requests per minute. Configure via environment variables:
-
-```env
-RATE_LIMIT_REQUESTS=60    # Max requests per window
-RATE_LIMIT_WINDOW=60      # Window duration in seconds
-```
-
-### Security Headers
-
-All HTTP responses include security headers:
-- `Content-Security-Policy` (CSP)
-- `X-Frame-Options: DENY`
-- `X-Content-Type-Options: nosniff`
-- `X-XSS-Protection: 1; mode=block`
-
-### CORS
-
-By default, CORS is restricted to localhost. Configure allowed origins:
-
-```env
-ALLOWED_ORIGINS=localhost:8080,localhost:3000
-```
-
-### SSRF Protection
-
-The `OLLAMA_HOST` variable is validated to prevent Server-Side Request Forgery attacks.
-
----
-
-### MCP Configuration (`~/.claude.json`)
+Add to `~/.claude.json`:
 
 ```json
 {
@@ -216,13 +77,171 @@ The `OLLAMA_HOST` variable is validated to prevent Server-Side Request Forgery a
 }
 ```
 
-### Configuration for Other IDEs
+### 4. Start Ollama
 
-The MCP server uses the **stdio transport** (standard MCP protocol), making it compatible with all MCP-enabled tools.
+```bash
+open -a Ollama        # macOS app
+# or: ollama serve &  # command line
+```
 
-#### GitHub Copilot (VS Code)
+> PostgreSQL auto-starts via Homebrew. Ollama requires manual start — a deliberate choice to keep human control over AI processes.
 
-Create `.vscode/mcp.json` in your workspace:
+### 5. Restart your IDE and test
+
+```
+store_memory({ content: "Test memory", category: "discovery" })
+retrieve_memories({ query: "test" })
+```
+
+---
+
+## MCP Tools
+
+| Tool | Description | Example |
+|------|-------------|---------|
+| **`store_memory`** | Store a memory with category, tags, importance | `store_memory({ content: "Fixed auth bug by...", category: "bugfix", tags: ["auth"], importance: 0.9 })` |
+| **`retrieve_memories`** | Semantic search across memories | `retrieve_memories({ query: "authentication flow", max_results: 5 })` |
+| **`list_memories`** | List recent memories, optionally filtered | `list_memories({ limit: 20, category: "decision" })` |
+| **`memory_stats`** | Get statistics: totals, distribution, trends | `memory_stats()` |
+| **`delete_memory`** | Remove a specific memory by ID | `delete_memory({ memory_id: "uuid" })` |
+| **`memory_forgetting_cycle`** | Run ACT-R decay cycle across all memories | `memory_forgetting_cycle()` |
+
+### Memory Categories
+
+| Category | Icon | Use for |
+|----------|------|---------|
+| `bugfix` | 🔴 | Bug fixes and their solutions |
+| `decision` | 🟠 | Architecture and design decisions |
+| `feature` | 🟢 | New functionality implemented |
+| `discovery` | 🔵 | Learnings and discoveries |
+| `refactor` | 🟣 | Refactoring notes |
+| `change` | ⚪ | General changes |
+| `pattern` | 🟤 | Reusable patterns identified |
+| `preference` | 🟡 | User/team preferences |
+| `learning` | 📘 | Lessons learned |
+| `error_solution` | 🩹 | Specific error solutions |
+
+---
+
+## How It Works
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      Claude Code (or any MCP client)        │
+│                          │                                  │
+│                    ┌─────▼─────┐                            │
+│                    │ MCP Server │ (6 tools)                 │
+│                    └─────┬─────┘                            │
+│                          │                                  │
+│         ┌────────────────┼────────────────┐                 │
+│         ▼                ▼                ▼                 │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐        │
+│  │ PostgreSQL  │  │   Ollama    │  │   Hooks     │        │
+│  │ + pgvector  │  │ (embeddings)│  │ (automation) │        │
+│  └──────┬──────┘  └─────────────┘  └──────┬──────┘        │
+│         ▼                                  ▼               │
+│  ┌─────────────┐                   ┌─────────────┐        │
+│  │  memories   │                   │  CLAUDE.md  │        │
+│  │  (table)    │                   │ (per-project)│        │
+│  └─────────────┘                   └─────────────┘        │
+└─────────────────────────────────────────────────────────────┘
+```
+
+| Component | Role | Auto-start |
+|-----------|------|------------|
+| **PostgreSQL 17 + pgvector** | Memory storage + vector search | Yes (Homebrew) |
+| **Ollama** | Local embedding generation (nomic-embed-text) | No (manual) |
+| **MCP Server** | Interface with AI coding assistants (6 tools) | Via IDE |
+| **Hooks** | Auto-capture prompts + inject context into CLAUDE.md | Via config |
+| **Web Interface** | Browse and search memories | Manual |
+
+---
+
+## ACT-R Cognitive Scoring
+
+Memory retrieval uses the [ACT-R cognitive architecture](https://en.wikipedia.org/wiki/ACT-R), ranking memories like human cognition rather than raw cosine similarity:
+
+```
+Activation(m) = Base-level(m) + Weight × Similarity + Spreading(m) + Noise
+```
+
+| Component | What it does |
+|-----------|-------------|
+| **Base-level** | Frequently accessed memories score higher; unused ones decay over time |
+| **Similarity** | Semantic match between your query and the memory |
+| **Spreading** | Shared tags boost contextually related memories |
+| **Noise** | Small random factor prevents static ranking bias |
+
+Memories transition through three states: **Active** → **Dormant** → **Forgotten** (never deleted).
+
+<details>
+<summary><strong>ACT-R configuration variables</strong></summary>
+
+```env
+USE_ACTR_SCORING=true       # Master switch (false = cosine-only scoring)
+ACTR_DECAY_D=0.5            # Power-law decay rate
+ACTR_WEIGHT_W=11.0          # Semantic similarity weight
+ACTR_NOISE_SIGMA=1.2        # Gaussian noise standard deviation
+ACTR_THRESHOLD_TAU=-2.0     # Retrieval threshold
+ACTR_SPREADING_S=2.0        # Spreading activation strength
+```
+
+</details>
+
+See [docs/MIGRATION.md](docs/MIGRATION.md) for upgrade instructions from v1 (cosine-only) to v2 (ACT-R).
+
+---
+
+## Configuration
+
+### Environment Variables
+
+Copy `.env.example` to `.env` and configure:
+
+```env
+PG_HOST=localhost
+PG_PORT=5432
+PG_DATABASE=claude_memory
+PG_USER=claude
+PG_PASSWORD=YOUR_SECURE_PASSWORD    # Generate: openssl rand -base64 32
+OLLAMA_HOST=http://localhost:11434
+EMBEDDING_MODEL=nomic-embed-text
+```
+
+<details>
+<summary><strong>Optional security settings</strong></summary>
+
+```env
+API_KEY=                            # Set to require API key authentication
+RATE_LIMIT_REQUESTS=60              # Requests per minute (default: 60)
+RATE_LIMIT_WINDOW=60                # Rate limit window in seconds
+ALLOWED_ORIGINS=localhost:8080      # CORS allowed origins
+```
+
+</details>
+
+### MCP Setup by IDE
+
+<details>
+<summary><strong>Claude Code</strong> (~/.claude.json)</summary>
+
+```json
+{
+  "mcpServers": {
+    "claude-memory-local": {
+      "type": "stdio",
+      "command": "~/claude-memory-local/start-server.sh",
+      "args": []
+    }
+  }
+}
+```
+
+</details>
+
+<details>
+<summary><strong>GitHub Copilot / VS Code</strong> (.vscode/mcp.json)</summary>
+
 ```json
 {
   "mcp": {
@@ -236,9 +255,11 @@ Create `.vscode/mcp.json` in your workspace:
 }
 ```
 
-#### Cursor
+</details>
 
-Add to `~/.cursor/mcp.json`:
+<details>
+<summary><strong>Cursor</strong> (~/.cursor/mcp.json)</summary>
+
 ```json
 {
   "mcpServers": {
@@ -250,395 +271,102 @@ Add to `~/.cursor/mcp.json`:
 }
 ```
 
-#### JetBrains (IntelliJ, WebStorm, PyCharm)
+</details>
+
+<details>
+<summary><strong>JetBrains (IntelliJ, WebStorm, PyCharm)</strong></summary>
 
 1. Settings → Tools → MCP Servers
 2. Add Server → Type: stdio
 3. Command: `~/claude-memory-local/start-server.sh`
 
-#### Antigravity
+</details>
 
-1. Settings → MCP Servers → Add Custom Server
-2. Type: stdio
-3. Command: `~/claude-memory-local/start-server.sh`
+<details>
+<summary><strong>Windsurf / Other MCP clients</strong></summary>
 
-#### VS Code (with MCP extension)
+The server uses the standard **stdio transport** (MCP protocol). Point your MCP client to:
 
-Add to `settings.json`:
-```json
-{
-  "mcp.servers": {
-    "claude-memory-local": {
-      "type": "stdio",
-      "command": "~/claude-memory-local/start-server.sh"
-    }
-  }
-}
+```
+~/claude-memory-local/start-server.sh
 ```
 
-> **Note**: The hooks system (auto-capture prompts, CLAUDE.md injection) is specific to Claude Code. Other IDEs will use the MCP tools directly without automation hooks.
+</details>
+
+> **Note**: The hooks system (auto-capture prompts, CLAUDE.md injection) is specific to Claude Code. Other IDEs use the MCP tools directly without automation hooks.
 
 ---
 
-## Usage
+## Hooks & Automation
 
-### MCP Tools
+The hooks system provides two automations for Claude Code:
 
-The server exposes **5 tools** directly usable in Claude Code:
+1. **Prompt Capture** — Every prompt you submit is automatically embedded and stored for semantic search
+2. **CLAUDE.md Injection** — Recent memories are injected into your project's `CLAUDE.md` at session start, after edits, and at session end
 
-#### 1. `store_memory` — Store a memory
-
-```typescript
-store_memory({
-  content: "Full description of the problem and solution",
-  category: "bugfix",        // bugfix|decision|feature|discovery|refactor|change
-  summary: "Short summary",   // optional, auto-generated if absent
-  tags: ["auth", "supabase"], // optional
-  importance: 0.9,           // 0.0 to 1.0, default: 0.5
-  project: "/path/to/project" // optional, enables per-folder CLAUDE.md
-})
-```
-
-**Available categories:**
-
-| Category | Icon | Usage |
-|----------|------|-------|
-| `bugfix` | 🔴 | Bug fix |
-| `decision` | 🟠 | Architectural decision |
-| `feature` | 🟢 | New feature |
-| `discovery` | 🔵 | Learning, discovery |
-| `refactor` | 🟣 | Refactoring |
-| `change` | ⚪ | General change |
-| `pattern` | 🟤 | Reusable pattern identified |
-| `preference` | 🟡 | User preference |
-| `learning` | 📘 | Lesson learned |
-| `error_solution` | 🩹 | Solution to specific error |
-
-**Per-folder CLAUDE.md**
-
-When you provide a `project` path, the memory is stored with project context.
-
-**CLAUDE.md is updated automatically via hooks** at:
-- `SessionStart` — When Claude Code session begins
-- `PostToolUse` — After file modifications (Write, Edit, MultiEdit)
-- `Stop` — When session ends
-
-The `context-hook.py` script reads memories for the current project and injects them into `CLAUDE.md`.
-
-#### 2. `retrieve_memories` — Search memories
-
-```typescript
-retrieve_memories({
-  query: "authentication supabase RLS",
-  max_results: 5,           // default: 5
-  category: "bugfix",       // optional, filter by category
-  min_similarity: 0.5       // default: 0.5
-})
-```
-
-Returns relevant memories ranked by ACT-R cognitive activation (frequency + recency + semantic similarity + tag association) or cosine similarity if ACT-R is disabled.
-
-#### 3. `list_memories` — List recent memories
-
-```typescript
-list_memories({
-  limit: 20,                // default: 20
-  category: "decision"      // optional
-})
-```
-
-#### 4. `memory_stats` — Statistics
-
-```typescript
-memory_stats()
-```
-
-Returns:
-- Total memories
-- Distribution by category
-- Memories this week
-- Most accessed memories
-
-#### 5. `delete_memory` — Delete a memory
-
-```typescript
-delete_memory({
-  memory_id: "uuid-of-memory"
-})
-```
-
-#### 6. `memory_forgetting_cycle` — Strategic forgetting
-
-```typescript
-memory_forgetting_cycle()
-```
-
-Recalculates activation for all memories and transitions their status:
-- **Active** (A > 0): readily retrievable
-- **Dormant** (-2 < A <= 0): retrievable but deprioritized
-- **Forgotten** (A <= -2): excluded from default results (never deleted)
+See [docs/hooks-prompts-capture.md](docs/hooks-prompts-capture.md) for setup instructions and hook configuration.
 
 ---
 
-### ACT-R Cognitive Scoring
+## Web Interface
 
-**New in v2.0** — Memory retrieval is now powered by the ACT-R cognitive architecture (Honda et al., HAI '25), replacing simple cosine similarity ranking with a composite cognitive scoring formula:
-
-```
-A(m) = B(m) + w * cosine_similarity + S(m) + epsilon
-```
-
-| Component | Formula | Description |
-|-----------|---------|-------------|
-| **B(m)** | `ln(Sum(t - ti)^-d)` | Base-level activation: frequency + power-law decay |
-| **w * cosine** | `11.0 * similarity` | Weighted semantic similarity |
-| **S(m)** | `Sum Wj(S - ln(fan_j))` | Spreading activation via shared tags |
-| **epsilon** | `~ N(0, 1.2)` | Gaussian noise for probabilistic variability |
-
-**Key benefits:**
-- Frequently accessed memories naturally rise in ranking
-- Old unused memories gradually fade (without deletion)
-- Tag associations boost contextually related memories
-- Probabilistic variability prevents static ranking bias
-- Query type adaptation (debugging queries prioritize semantic precision)
-
-**Configuration** (in `.env`):
-
-```env
-USE_ACTR_SCORING=true       # Master switch (false = original cosine scoring)
-ACTR_DECAY_D=0.5            # Power-law decay rate
-ACTR_WEIGHT_W=11.0          # Semantic similarity weight
-ACTR_NOISE_SIGMA=1.2        # Gaussian noise standard deviation
-ACTR_THRESHOLD_TAU=-2.0     # Retrieval threshold
-ACTR_SPREADING_S=2.0        # Spreading activation strength
-```
-
-See [docs/MIGRATION.md](docs/MIGRATION.md) for upgrade instructions from previous versions.
-
----
-
-### Automatic Prompt Capture
-
-MCP-Claude-mem-local automatically captures your prompts using the `UserPromptSubmit` hook. This enables semantic search across your prompt history.
-
-**How it works:**
-1. Every prompt you submit triggers the `UserPromptSubmit` hook
-2. The `capture-prompt.py` script extracts the project context
-3. An embedding is generated via Ollama (nomic-embed-text)
-4. The prompt is stored in the `user_prompts` table
-
-**Key features:**
-- **Non-blocking**: Never slows down Claude Code (10s timeout, silent failures)
-- **Project-aware**: Associates prompts with the current project
-- **Searchable**: Vector embeddings enable semantic search
-- **Visible in Web UI**: Prompts tab shows your history
-
-**Configuration** (in `~/.claude/settings.json`):
-```json
-{
-  "hooks": {
-    "UserPromptSubmit": [
-      {
-        "type": "command",
-        "command": "~/claude-memory-local/venv/bin/python3 ~/claude-memory-local/plugins/scripts/capture-prompt.py",
-        "timeout": 10,
-        "failOnError": false
-      }
-    ]
-  }
-}
-```
-
-> 📖 Full documentation: [docs/hooks-prompts-capture.md](docs/hooks-prompts-capture.md)
-
----
-
-### Web Interface
-
-The web interface is included in the repo as `viewer.html`.
-
-#### Launch the web server
+Browse, search, and filter your memories in the browser:
 
 ```bash
 cd ~/claude-memory-local && python3 -m http.server 8080
+# Open http://localhost:8080/viewer.html
 ```
 
-#### Access the interface
-
-Open: **http://localhost:8080/viewer.html**
-
-**Features:**
-- Global statistics
-- Text search
-- Filters by type (bugfix, feature, etc.)
-- Filters by project
-- Prompts tab
-
----
-
-### CLAUDE.md Integration
-
-The system updates `CLAUDE.md` files with recent memories **via hooks** (not directly from `store_memory`). When you store a memory with a `project` path, the context injection happens on the next hook trigger (SessionStart, PostToolUse, or Stop).
-
-#### Result in CLAUDE.md
-
-```markdown
-<claude-memory-local-context>
-# Recent Activity - /path/to/project
-
-| Time | Type | Summary |
-|------|------|---------|
-| 02/03 10:44 | 🔴 bugfix | Fixed PostgreSQL connection... |
-| 02/03 09:30 | 🟢 feature | Added new authentication... |
-
-</claude-memory-local-context>
-```
-
-#### Manual context injection
-
-```bash
-cd /path/to/your/project
-~/claude-memory-local/claude-context.sh
-```
-
----
-
-## Recommended Workflow
-
-### Session Start
-
-```
-1. Claude Code starts
-2. retrieve_memories({ query: "project context" })
-3. Read CLAUDE.md with injected context
-```
-
-### During Work
-
-```
-After a bugfix → store_memory({ category: "bugfix", project: "/path/to/project", ... })
-After a decision → store_memory({ category: "decision", project: "/path/to/project", ... })
-Important discovery → store_memory({ category: "discovery", project: "/path/to/project", ... })
-```
-
-### Session End
-
-Store important learnings from the session.
-
----
-
-## Maintenance
-
-### Start services after reboot
-
-```bash
-# PostgreSQL - auto-starts via brew services, verify with:
-pg_isready
-
-# Ollama - MUST be started manually (intentional design choice)
-open -a Ollama
-# or: ollama serve &
-
-# Verify Ollama is running
-ollama list
-```
-
-### Regenerate web interface
-
-```bash
-cd ~/claude-memory-local
-source venv/bin/activate
-python src/web_ui.py
-```
-
-### Backup database
-
-```bash
-pg_dump -U claude claude_memory > ~/backup-claude-memory-$(date +%Y%m%d).sql
-```
-
-### Restore a backup
-
-```bash
-psql -U claude claude_memory < ~/backup-claude-memory-YYYYMMDD.sql
-```
+Features: global stats, text search, category filters, project filters, prompts history tab.
 
 ---
 
 ## Troubleshooting
 
-### MCP server doesn't connect
-
+**MCP server doesn't connect**
 ```bash
-# Verify PostgreSQL is running
-pg_isready
-
-# Verify Ollama is running
-ollama list
-
-# Test connection manually
-cd ~/claude-memory-local
-source venv/bin/activate
-python -c "
-import asyncio
-import asyncpg
-import os
-from dotenv import load_dotenv
-load_dotenv()
-async def test():
-    conn = await asyncpg.connect(
-        host=os.getenv('PG_HOST', 'localhost'),
-        port=int(os.getenv('PG_PORT', 5432)),
-        database=os.getenv('PG_DATABASE', 'claude_memory'),
-        user=os.getenv('PG_USER', 'claude'),
-        password=os.getenv('PG_PASSWORD')
-    )
-    print('Connection OK')
-    await conn.close()
-asyncio.run(test())
-"
+pg_isready              # Check PostgreSQL
+ollama list             # Check Ollama
 ```
 
-### PostgreSQL doesn't start
-
+**PostgreSQL doesn't start**
 ```bash
-# Check if another PostgreSQL is running on port 5432
-lsof -i :5432
-
-# If using Homebrew
-brew services restart postgresql@17
+lsof -i :5432                      # Check port conflict
+brew services restart postgresql@17 # Restart service
 ```
 
-### Error "role claude does not exist"
-
+**Error "role claude does not exist"**
 ```bash
 createuser -s claude
-# Set a secure password (generate one with: openssl rand -base64 32)
-psql -c "ALTER USER claude PASSWORD 'YOUR_SECURE_PASSWORD';"
+psql -c "ALTER USER claude PASSWORD 'YOUR_PASSWORD';"
 # Update .env with the same password
 ```
 
-### Web interface doesn't load
-
+**Web interface doesn't load**
 ```bash
-cd ~/claude-memory-local
-source venv/bin/activate
-python src/web_ui.py
+cd ~/claude-memory-local && source venv/bin/activate && python src/web_ui.py
 ```
 
 ---
 
-## Configuration Files
+## Documentation
 
-| File | Purpose |
-|------|---------|
-| `~/.claude.json` | MCP servers config |
-| `~/.claude/settings.json` | Enabled plugins |
-| `~/claude-memory-local/.env` | Environment variables |
-| `~/claude-memory-local/plugins/hooks/hooks.json` | Hooks config |
+| Document | Description |
+|----------|-------------|
+| [Getting Started](docs/getting-started.md) | Detailed onboarding guide |
+| [Technical Reference](docs/MCP-Claude-mem-local-Documentation-Technique.md) | Full technical documentation |
+| [Hooks & Prompt Capture](docs/hooks-prompts-capture.md) | Hook system setup and configuration |
+| [Migration Guide](docs/MIGRATION.md) | Upgrading from v1 to v2 (ACT-R) |
+| [Agent Template](docs/AGENTS-TEMPLATE.md) | Template for configuring AI agents |
+
+---
+
+## Contributing
+
+Contributions are welcome! Please open an issue or submit a pull request.
 
 ---
 
 ## License
 
-MIT License - See LICENSE file for details.
+[MIT](LICENSE)
