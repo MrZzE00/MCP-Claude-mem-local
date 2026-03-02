@@ -377,3 +377,5 @@ Contributions are welcome! Please open an issue or submit a pull request.
 ## License
 
 [MIT](LICENSE)
+
+[![With love by Zenika](https://img.shields.io/badge/With%20%E2%9D%A4%EF%B8%8F%20by-Zenika-b51432.svg)](https://oss.zenika.com)
