@@ -188,8 +188,6 @@ ACTR_SPREADING_S=2.0        # Spreading activation strength
 
 </details>
 
-See [docs/MIGRATION.md](docs/MIGRATION.md) for upgrade instructions from v1 (cosine-only) to v2 (ACT-R).
-
 ---
 
 ## Configuration
@@ -356,7 +354,6 @@ cd ~/claude-memory-local && source venv/bin/activate && python src/web_ui.py
 | [Getting Started](docs/getting-started.md) | Detailed onboarding guide |
 | [Technical Reference](docs/MCP-Claude-mem-local-Documentation-Technique.md) | Full technical documentation |
 | [Hooks & Prompt Capture](docs/hooks-prompts-capture.md) | Hook system setup and configuration |
-| [Migration Guide](docs/MIGRATION.md) | Upgrading from v1 to v2 (ACT-R) |
 | [Agent Template](docs/AGENTS-TEMPLATE.md) | Template for configuring AI agents |
 
 ---
