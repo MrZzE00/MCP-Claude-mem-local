@@ -389,10 +389,10 @@ Open: http://localhost:8080/viewer.html
 
 ### Add CLAUDE.md to Your Project
 
-Copy `CLAUDE.md.example` from the repo to your project root and customize it:
+Copy `CLAUDE.md.example` from the `docs/` folder to your project root and customize it:
 
 ```bash
-cp ~/claude-memory-local/CLAUDE.md.example /your/project/CLAUDE.md
+cp ~/claude-memory-local/docs/CLAUDE.md.example /your/project/CLAUDE.md
 ```
 
 ### Per-Folder Context
