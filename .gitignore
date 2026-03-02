@@ -4,6 +4,7 @@
 .env.*.local
 *.env
 CLAUDE.md
+.archive/
 
 # Python
 __pycache__/
