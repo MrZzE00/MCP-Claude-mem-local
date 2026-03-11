@@ -223,6 +223,126 @@ class TestRetrieveMemories:
             assert "category = $4" in call_args[0][0]
 
 
+    @pytest.mark.asyncio
+    async def test_retrieve_with_tags_filter(self):
+        """Test retrieving with tags filter passes tags to SQL."""
+        import sys
+        sys.path.insert(0, "src")
+        from server import retrieve_memories
+
+        with patch("server.get_embedding") as mock_embed, \
+             patch("server.get_pool") as mock_pool:
+
+            mock_embed.return_value = [0.1] * 768
+            mock_conn = AsyncMock()
+            # Set up pool mock with proper async context manager
+            mock_pool_obj = MagicMock()
+            mock_pool_obj.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
+            mock_pool_obj.acquire.return_value.__aexit__ = AsyncMock(return_value=False)
+            mock_pool.return_value = mock_pool_obj
+
+            # Vector search returns results, trigram returns empty, tag fan empty
+            mock_conn.fetch = AsyncMock(side_effect=[
+                [
+                    {
+                        "id": "uuid-1",
+                        "content": "Tagged content",
+                        "summary": "Tagged",
+                        "category": "bugfix",
+                        "tags": ["setup", "mac"],
+                        "importance_score": 0.8,
+                        "created_at": None,
+                        "access_timestamps": [],
+                        "memory_status": "active",
+                        "project_context": None,
+                        "sim": 0.9,
+                    }
+                ],
+                [],  # trigram results
+                [],  # tag fan counts
+            ])
+            mock_conn.execute = AsyncMock()
+
+            result = await retrieve_memories(
+                query="setup mac",
+                tags=["setup"],
+            )
+
+            # Verify tags @> appeared in the vector SQL query
+            vec_call = mock_conn.fetch.call_args_list[0]
+            assert "tags @>" in vec_call[0][0]
+
+    @pytest.mark.asyncio
+    async def test_retrieve_with_project_filter(self):
+        """Test retrieving with project filter passes project to SQL."""
+        import sys
+        sys.path.insert(0, "src")
+        from server import retrieve_memories
+
+        with patch("server.get_embedding") as mock_embed, \
+             patch("server.get_pool") as mock_pool:
+
+            mock_embed.return_value = [0.1] * 768
+            mock_conn = AsyncMock()
+            mock_pool_obj = MagicMock()
+            mock_pool_obj.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
+            mock_pool_obj.acquire.return_value.__aexit__ = AsyncMock(return_value=False)
+            mock_pool.return_value = mock_pool_obj
+
+            mock_conn.fetch = AsyncMock(side_effect=[
+                [
+                    {
+                        "id": "uuid-1",
+                        "content": "Project content",
+                        "summary": "Project",
+                        "category": "feature",
+                        "tags": [],
+                        "importance_score": 0.7,
+                        "created_at": None,
+                        "access_timestamps": [],
+                        "memory_status": "active",
+                        "project_context": "project-m4",
+                        "sim": 0.85,
+                    }
+                ],
+                [],  # trigram results
+                [],  # tag fan counts
+            ])
+            mock_conn.execute = AsyncMock()
+
+            result = await retrieve_memories(
+                query="mac mini setup",
+                project="project-m4",
+            )
+
+            vec_call = mock_conn.fetch.call_args_list[0]
+            assert "project_context =" in vec_call[0][0]
+
+    @pytest.mark.asyncio
+    async def test_retrieve_backward_compatible(self):
+        """Test that calling without new params still works."""
+        import sys
+        sys.path.insert(0, "src")
+        from server import retrieve_memories
+
+        with patch("server.get_embedding") as mock_embed, \
+             patch("server.get_pool") as mock_pool:
+
+            mock_embed.return_value = [0.1] * 768
+            mock_conn = AsyncMock()
+            mock_pool_obj = MagicMock()
+            mock_pool_obj.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
+            mock_pool_obj.acquire.return_value.__aexit__ = AsyncMock(return_value=False)
+            mock_pool.return_value = mock_pool_obj
+
+            mock_conn.fetch = AsyncMock(side_effect=[[], []])  # vector empty, trigram empty
+            mock_conn.execute = AsyncMock()
+
+            result = await retrieve_memories(query="anything")
+
+            assert "Aucune memoire" in result
+
+
 class TestListMemories:
     """Test memory listing."""
 
@@ -268,6 +388,72 @@ class TestListMemories:
             result = await list_memories()
             
             assert "No memories stored" in result
+
+
+    @pytest.mark.asyncio
+    async def test_list_with_tags_filter(self):
+        """Test listing with tags filter."""
+        import sys
+        sys.path.insert(0, "src")
+        from server import list_memories
+
+        with patch("server.get_pool") as mock_pool:
+            mock_conn = AsyncMock()
+            mock_pool_obj = MagicMock()
+            mock_pool_obj.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
+            mock_pool_obj.acquire.return_value.__aexit__ = AsyncMock(return_value=False)
+            mock_pool.return_value = mock_pool_obj
+
+            mock_conn.fetch = AsyncMock(return_value=[
+                {
+                    "id": "uuid-1",
+                    "summary": "Tagged summary",
+                    "category": "bugfix",
+                    "tags": ["setup"],
+                    "importance_score": 0.7,
+                    "created_at": None,
+                    "access_count": 3,
+                    "project_context": None,
+                }
+            ])
+
+            result = await list_memories(tags=["setup"])
+
+            call_args = mock_conn.fetch.call_args
+            assert "tags @>" in call_args[0][0]
+
+    @pytest.mark.asyncio
+    async def test_list_with_project_filter(self):
+        """Test listing with project filter."""
+        import sys
+        sys.path.insert(0, "src")
+        from server import list_memories
+
+        with patch("server.get_pool") as mock_pool:
+            mock_conn = AsyncMock()
+            mock_pool_obj = MagicMock()
+            mock_pool_obj.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
+            mock_pool_obj.acquire.return_value.__aexit__ = AsyncMock(return_value=False)
+            mock_pool.return_value = mock_pool_obj
+
+            mock_conn.fetch = AsyncMock(return_value=[
+                {
+                    "id": "uuid-1",
+                    "summary": "Project summary",
+                    "category": "feature",
+                    "tags": [],
+                    "importance_score": 0.6,
+                    "created_at": None,
+                    "access_count": 1,
+                    "project_context": "project-m4",
+                }
+            ])
+
+            result = await list_memories(project="project-m4")
+
+            call_args = mock_conn.fetch.call_args
+            assert "project_context =" in call_args[0][0]
+            assert "projet: project-m4" in result
 
 
 class TestMemoryStats:
