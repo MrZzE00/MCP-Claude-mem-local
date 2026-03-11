@@ -14,6 +14,7 @@ from mcp.server.fastmcp import FastMCP
 # ACT-R cognitive scoring
 from actr_scoring import ACTRConfig, score_and_rank_memories
 from forgetting import run_forgetting_cycle
+from hybrid_search import build_search_queries, reciprocal_rank_fusion
 
 # Configure logging
 logging.basicConfig(
@@ -126,17 +127,21 @@ async def retrieve_memories(
     query: str,
     max_results: int = 5,
     category: str = None,
-    min_similarity: float = 0.5,
+    min_similarity: float = 0.3,
+    tags: list[str] = None,
+    project: str = None,
     include_forgotten: bool = False
 ) -> str:
     """
-    Recupere les memoires pertinentes pour une requete.
+    Recupere les memoires pertinentes pour une requete (recherche hybride vector + trigramme).
 
     Args:
         query: La requete de recherche
         max_results: Nombre maximum de resultats (defaut: 5)
         category: Filtrer par categorie (optionnel)
-        min_similarity: Similarite minimum 0.0 a 1.0 (defaut: 0.5)
+        min_similarity: Similarite minimum 0.0 a 1.0 (defaut: 0.3)
+        tags: Filtrer par tags (optionnel, ex: ["setup", "mac"])
+        project: Filtrer par projet (optionnel, ex: "project-m4")
         include_forgotten: Inclure les memoires oubliees (defaut: false)
 
     Returns:
@@ -148,44 +153,40 @@ async def retrieve_memories(
 
         db = await get_pool()
         async with db.acquire() as conn:
-            # Stage 1: SQL pre-filter by cosine similarity (pgvector HNSW)
             prefetch = actr_config.prefetch_limit if actr_config.use_actr else max_results
-            status_filter = "" if include_forgotten else "AND (memory_status IS NULL OR memory_status != 'forgotten')"
 
-            if category:
-                rows = await conn.fetch(f"""
-                    SELECT
-                        id, content, summary, category, tags,
-                        importance_score, created_at,
-                        access_timestamps, memory_status,
-                        1 - (embedding <=> $1::vector) as sim
-                    FROM memories
-                    WHERE category = $4
-                      AND 1 - (embedding <=> $1::vector) >= $2
-                      {status_filter}
-                    ORDER BY (1 - (embedding <=> $1::vector)) DESC
-                    LIMIT $3
-                """, embedding_str, min_similarity, prefetch, category)
-            else:
-                rows = await conn.fetch(f"""
-                    SELECT
-                        id, content, summary, category, tags,
-                        importance_score, created_at,
-                        access_timestamps, memory_status,
-                        1 - (embedding <=> $1::vector) as sim
-                    FROM memories
-                    WHERE 1 - (embedding <=> $1::vector) >= $2
-                      {status_filter}
-                    ORDER BY (1 - (embedding <=> $1::vector)) DESC
-                    LIMIT $3
-                """, embedding_str, min_similarity, prefetch)
+            # Build hybrid search queries (vector + trigram)
+            vec_sql, vec_params, trgm_sql, trgm_params = build_search_queries(
+                embedding_str=embedding_str,
+                query_text=query,
+                min_similarity=min_similarity,
+                prefetch=prefetch,
+                category=category,
+                tags=tags,
+                project=project,
+                include_forgotten=include_forgotten,
+            )
 
-            if not rows:
+            # Stage 1a: Vector search (always available)
+            vec_rows = await conn.fetch(vec_sql, *vec_params)
+
+            # Stage 1b: Trigram search (graceful fallback if pg_trgm unavailable)
+            trgm_rows = []
+            try:
+                trgm_rows = await conn.fetch(trgm_sql, *trgm_params)
+            except Exception as trgm_err:
+                logger.warning(f"Trigram search unavailable, falling back to vector-only: {trgm_err}")
+
+            # Stage 2: Reciprocal Rank Fusion
+            vec_dicts = [dict(r) for r in vec_rows]
+            trgm_dicts = [dict(r) for r in trgm_rows]
+            fused = reciprocal_rank_fusion(vec_dicts, trgm_dicts)
+
+            if not fused:
                 return "Aucune memoire pertinente trouvee."
 
-            # Stage 2: ACT-R re-ranking (or fallback to original scoring)
+            # Stage 3: ACT-R re-ranking (or fallback to original scoring)
             if actr_config.use_actr:
-                # Build tag fan counts for spreading activation
                 tag_counts = await conn.fetch("""
                     SELECT unnest(tags) as tag, COUNT(*) as cnt
                     FROM memories
@@ -194,12 +195,9 @@ async def retrieve_memories(
                 """)
                 tag_fan = {r["tag"].lower(): r["cnt"] for r in tag_counts}
 
-                # Convert asyncpg Records to dicts for scoring
-                row_dicts = [dict(r) for r in rows]
-
                 scored = score_and_rank_memories(
-                    rows=row_dicts,
-                    query_tags=None,
+                    rows=fused,
+                    query_tags=tags,
                     tag_fan_counts=tag_fan,
                     config=actr_config,
                     query=query,
@@ -207,13 +205,11 @@ async def retrieve_memories(
                 )
                 final_rows = scored[:max_results]
             else:
-                # Fallback: original scoring (cosine * importance)
-                row_dicts = [dict(r) for r in rows]
-                row_dicts.sort(
+                fused.sort(
                     key=lambda r: r["sim"] * r["importance_score"],
                     reverse=True,
                 )
-                final_rows = row_dicts[:max_results]
+                final_rows = fused[:max_results]
 
             # Record access timestamps for retrieved memories
             ids = [row['id'] for row in final_rows]
@@ -234,11 +230,17 @@ async def retrieve_memories(
             activation_info = ""
             if actr_config.use_actr and "activation_score" in row:
                 activation_info = f", activation: {row['activation_score']:.2f}"
+            rrf_info = ""
+            if "rrf_score" in row:
+                rrf_info = f", rrf: {row['rrf_score']:.4f}"
+            project_info = ""
+            if row.get("project_context"):
+                project_info = f"\nProjet: {row['project_context']}"
             results.append(f"""
 ---
-**[{row['category']}]** (similarite: {row['sim']:.2f}, importance: {row['importance_score']:.1f}{activation_info})
+**[{row['category']}]** (similarite: {row['sim']:.2f}, importance: {row['importance_score']:.1f}{activation_info}{rrf_info})
 {row['content']}
-Tags: {', '.join(row['tags']) if row['tags'] else 'aucun'}
+Tags: {', '.join(row['tags']) if row['tags'] else 'aucun'}{project_info}
 """)
 
         return f"## {len(final_rows)} memoire(s) trouvee(s):\n" + "\n".join(results)
@@ -251,47 +253,72 @@ Tags: {', '.join(row['tags']) if row['tags'] else 'aucun'}
 @mcp.tool()
 async def list_memories(
     limit: int = 20,
-    category: str = None
+    category: str = None,
+    tags: list[str] = None,
+    project: str = None
 ) -> str:
     """
     Liste les memoires recentes.
-    
+
     Args:
         limit: Nombre de memoires a afficher (defaut: 20)
         category: Filtrer par categorie (optionnel)
-    
+        tags: Filtrer par tags (optionnel, ex: ["setup", "mac"])
+        project: Filtrer par projet (optionnel, ex: "project-m4")
+
     Returns:
         Liste des memoires avec leurs metadonnees
     """
     try:
         db = await get_pool()
         async with db.acquire() as conn:
+            # Build dynamic WHERE clause with positional params
+            conditions = []
+            params = []
+            param_idx = 1
+
             if category:
-                rows = await conn.fetch("""
-                    SELECT id, summary, category, tags, importance_score, created_at, access_count
-                    FROM memories
-                    WHERE category = $1
-                    ORDER BY created_at DESC
-                    LIMIT $2
-                """, category, limit)
-            else:
-                rows = await conn.fetch("""
-                    SELECT id, summary, category, tags, importance_score, created_at, access_count
-                    FROM memories
-                    ORDER BY created_at DESC
-                    LIMIT $1
-                """, limit)
-        
+                conditions.append(f"category = ${param_idx}")
+                params.append(category)
+                param_idx += 1
+
+            if tags:
+                conditions.append(f"tags @> ${param_idx}")
+                params.append(tags)
+                param_idx += 1
+
+            if project:
+                conditions.append(f"project_context = ${param_idx}")
+                params.append(project)
+                param_idx += 1
+
+            where_clause = ""
+            if conditions:
+                where_clause = "WHERE " + " AND ".join(conditions)
+
+            params.append(limit)
+            limit_param = f"${param_idx}"
+
+            rows = await conn.fetch(f"""
+                SELECT id, summary, category, tags, importance_score,
+                       created_at, access_count, project_context
+                FROM memories
+                {where_clause}
+                ORDER BY created_at DESC
+                LIMIT {limit_param}
+            """, *params)
+
         if not rows:
             return "Aucune memoire stockee."
-        
+
         results = []
         for row in rows:
+            project_info = f" | projet: {row['project_context']}" if row.get('project_context') else ""
             results.append(
                 f"- **{row['category']}** | {row['summary'][:80]}... | "
-                f"importance: {row['importance_score']:.1f} | acces: {row['access_count']}"
+                f"importance: {row['importance_score']:.1f} | acces: {row['access_count']}{project_info}"
             )
-        
+
         return f"## {len(rows)} memoire(s):\n" + "\n".join(results)
 
     except Exception as e:

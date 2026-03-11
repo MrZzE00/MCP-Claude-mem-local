@@ -4,6 +4,9 @@
 -- Enable pgvector extension
 CREATE EXTENSION IF NOT EXISTS vector;
 
+-- Enable pg_trgm for trigram similarity search (hybrid search)
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
 -- Memories table
 CREATE TABLE IF NOT EXISTS memories (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -83,8 +86,14 @@ CREATE INDEX IF NOT EXISTS idx_memories_status ON memories(memory_status);
 CREATE INDEX IF NOT EXISTS idx_memories_access_timestamps ON memories USING GIN (access_timestamps);
 
 -- Full-text search index (optional, for keyword search)
-CREATE INDEX IF NOT EXISTS idx_memories_content_fts 
+CREATE INDEX IF NOT EXISTS idx_memories_content_fts
     ON memories USING gin(to_tsvector('english', content));
+
+-- Trigram indexes for hybrid search (fuzzy text matching)
+CREATE INDEX IF NOT EXISTS idx_memories_content_trgm
+    ON memories USING gin (content gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_memories_summary_trgm
+    ON memories USING gin (summary gin_trgm_ops);
 
 -- Function to update last_accessed_at automatically
 CREATE OR REPLACE FUNCTION update_last_accessed()
