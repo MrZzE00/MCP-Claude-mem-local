@@ -6,6 +6,8 @@ import os
 import sys
 from uuid import UUID
 
+from contextlib import asynccontextmanager
+
 import asyncpg
 import httpx
 from dotenv import load_dotenv
@@ -40,9 +42,6 @@ EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
 # Load ACT-R configuration
 actr_config = ACTRConfig.from_env()
 
-# Initialiser le serveur MCP
-mcp = FastMCP("claude-memory-local")
-
 # Pool de connexions global
 pool = None
 
@@ -61,6 +60,25 @@ async def get_pool():
             max_size=10
         )
     return pool
+
+
+@asynccontextmanager
+async def lifespan(server):
+    """Gère le cycle de vie du serveur : cleanup du pool à l'arrêt."""
+    logger.info("Lifespan: démarrage")
+    try:
+        yield
+    finally:
+        global pool
+        if pool is not None:
+            logger.info("Lifespan: fermeture du pool PostgreSQL")
+            await pool.close()
+            pool = None
+        logger.info("Lifespan: cleanup terminé")
+
+
+# Initialiser le serveur MCP avec lifespan
+mcp = FastMCP("claude-memory-local", lifespan=lifespan)
 
 
 async def get_embedding(text: str) -> list[float]:
