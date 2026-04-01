@@ -159,7 +159,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
 async def _init_connection(conn):
     """Set RLS session variable on each new connection."""
-    await conn.execute("SET app.current_user_id = $1", USER_ID)
+    # SET does not support $1 parameters in PostgreSQL; sanitize and interpolate
+    safe_id = USER_ID.replace("'", "''")
+    await conn.execute(f"SET app.current_user_id = '{safe_id}'")
 
 
 @asynccontextmanager
