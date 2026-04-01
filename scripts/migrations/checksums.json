@@ -1,0 +1,5 @@
+{
+  "001_actr_schema.sql": "56a80c101748d6367d2a83f60080b2ea4686717355a8abdf606e0acd7efce4e9",
+  "002_hybrid_search.sql": "547a7c0c6e7e46d6caf8d22433d00f1b014c4d3fc4c1b5e6890a17d6aca6e654",
+  "003_row_level_security.sql": "471efa8f4a32838e7166916ac56e474e345c274f876cb82522d5e713315e315c"
+}

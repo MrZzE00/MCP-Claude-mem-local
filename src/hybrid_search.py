@@ -21,6 +21,7 @@ def build_search_queries(
     tags: list[str] | None = None,
     project: str | None = None,
     include_forgotten: bool = False,
+    user_id: str | None = None,
 ) -> tuple[str, list, str, list]:
     """Build parallel SQL queries for vector and trigram search.
 
@@ -38,6 +39,10 @@ def build_search_queries(
 
         if not include_forgotten:
             clauses.append("(memory_status IS NULL OR memory_status != 'forgotten')")
+
+        if user_id:
+            params.append(user_id)
+            clauses.append(f"(user_id = ${param_offset + len(params)} OR user_id IS NULL)")
 
         if category:
             params.append(category)

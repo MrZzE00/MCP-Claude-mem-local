@@ -139,9 +139,10 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
     applied_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Grant permissions (for team mode)
--- GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO synaptic;
--- GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO synaptic;
+-- Grant least-privilege permissions to application user
+-- Run as superuser (postgres) after schema creation
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO claude;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO claude;
 
 -- Initial data (optional - sample memory)
 -- INSERT INTO memories (content, summary, category, importance_score, tags)

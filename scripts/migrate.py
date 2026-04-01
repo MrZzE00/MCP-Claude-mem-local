@@ -3,6 +3,8 @@
 
 import argparse
 import asyncio
+import hashlib
+import json
 import os
 import sys
 from pathlib import Path
@@ -13,6 +15,19 @@ from dotenv import load_dotenv
 load_dotenv()
 
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
+CHECKSUMS_FILE = MIGRATIONS_DIR / "checksums.json"
+
+
+def load_checksums() -> dict[str, str]:
+    """Load expected checksums for migration files."""
+    if CHECKSUMS_FILE.exists():
+        return json.loads(CHECKSUMS_FILE.read_text())
+    return {}
+
+
+def compute_checksum(path: Path) -> str:
+    """Compute SHA-256 checksum of a file."""
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 async def get_connection():
@@ -30,9 +45,17 @@ async def ensure_migrations_table(conn):
         CREATE TABLE IF NOT EXISTS schema_migrations (
             version INTEGER PRIMARY KEY,
             name VARCHAR(255) NOT NULL,
+            checksum VARCHAR(64),
             applied_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
         )
     """)
+    # Add checksum column if missing (backwards compat)
+    try:
+        await conn.execute("""
+            ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS checksum VARCHAR(64)
+        """)
+    except Exception:
+        pass
 
 
 async def get_applied_versions(conn):
@@ -55,6 +78,7 @@ async def run_migrations(dry_run=False):
         await ensure_migrations_table(conn)
         applied = await get_applied_versions(conn)
         migrations = discover_migrations()
+        checksums = load_checksums()
 
         pending = [(v, n, p) for v, n, p in migrations if v not in applied]
 
@@ -63,10 +87,26 @@ async def run_migrations(dry_run=False):
             return
 
         for version, name, path in pending:
-            print(f"{'[DRY RUN] ' if dry_run else ''}Applying migration {name}...")
+            # Verify checksum if available
+            actual_checksum = compute_checksum(path)
+            if name in checksums:
+                expected = checksums[name]
+                if actual_checksum != expected:
+                    print(f"ERROR: Checksum mismatch for {name}!")
+                    print(f"  Expected: {expected}")
+                    print(f"  Actual:   {actual_checksum}")
+                    print("  Migration file may have been tampered with. Aborting.")
+                    sys.exit(1)
+
+            print(f"{'[DRY RUN] ' if dry_run else ''}Applying migration {name} (sha256: {actual_checksum[:12]}...)...")
             if not dry_run:
                 sql = path.read_text()
                 await conn.execute(sql)
+                # Record checksum in migrations table
+                await conn.execute(
+                    "UPDATE schema_migrations SET checksum = $1 WHERE version = $2",
+                    actual_checksum, version,
+                )
                 print(f"  Applied migration {version}: {name}")
             else:
                 print(f"  Would apply migration {version}: {name}")
@@ -76,11 +116,26 @@ async def run_migrations(dry_run=False):
         await conn.close()
 
 
+def generate_checksums():
+    """Generate checksums.json for all migration files."""
+    migrations = discover_migrations()
+    checksums = {}
+    for _, name, path in migrations:
+        checksums[name] = compute_checksum(path)
+    CHECKSUMS_FILE.write_text(json.dumps(checksums, indent=2) + "\n")
+    print(f"Generated checksums for {len(checksums)} migration(s) in {CHECKSUMS_FILE}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Run database migrations")
     parser.add_argument("--dry-run", action="store_true", help="Show what would be applied without executing")
+    parser.add_argument("--generate-checksums", action="store_true", help="Generate checksums.json for migration files")
     args = parser.parse_args()
-    asyncio.run(run_migrations(dry_run=args.dry_run))
+
+    if args.generate_checksums:
+        generate_checksums()
+    else:
+        asyncio.run(run_migrations(dry_run=args.dry_run))
 
 
 if __name__ == "__main__":
