@@ -53,16 +53,30 @@ class ACTRConfig:
 
     @classmethod
     def from_env(cls) -> "ACTRConfig":
-        """Load configuration from environment variables with defaults."""
+        """Load configuration from environment variables with defaults and bounds validation."""
+        def _float(name: str, default: str, lo: float, hi: float) -> float:
+            try:
+                val = float(os.getenv(name, default))
+            except ValueError:
+                val = float(default)
+            return max(lo, min(hi, val))
+
+        def _int(name: str, default: str, lo: int, hi: int) -> int:
+            try:
+                val = int(os.getenv(name, default))
+            except ValueError:
+                val = int(default)
+            return max(lo, min(hi, val))
+
         return cls(
-            d=float(os.getenv("ACTR_DECAY_D", "0.5")),
-            w=float(os.getenv("ACTR_WEIGHT_W", "11.0")),
-            sigma=float(os.getenv("ACTR_NOISE_SIGMA", "1.2")),
-            tau=float(os.getenv("ACTR_THRESHOLD_TAU", "-2.0")),
-            S=float(os.getenv("ACTR_SPREADING_S", "2.0")),
+            d=_float("ACTR_DECAY_D", "0.5", 0.0, 2.0),
+            w=_float("ACTR_WEIGHT_W", "11.0", 0.0, 50.0),
+            sigma=_float("ACTR_NOISE_SIGMA", "1.2", 0.0, 5.0),
+            tau=_float("ACTR_THRESHOLD_TAU", "-2.0", -10.0, 10.0),
+            S=_float("ACTR_SPREADING_S", "2.0", 0.0, 10.0),
             use_spreading=os.getenv("ACTR_USE_SPREADING", "true").lower() == "true",
             use_noise=os.getenv("ACTR_USE_NOISE", "true").lower() == "true",
-            prefetch_limit=int(os.getenv("ACTR_PREFETCH_LIMIT", "50")),
+            prefetch_limit=_int("ACTR_PREFETCH_LIMIT", "50", 1, 10000),
             use_actr=os.getenv("USE_ACTR_SCORING", "true").lower() == "true",
         )
 

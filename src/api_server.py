@@ -37,14 +37,20 @@ if not PG_PASSWORD:
 # Security: Validate OLLAMA_HOST to prevent SSRF
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 _parsed_ollama = urlparse(OLLAMA_HOST)
-ALLOWED_OLLAMA_HOSTS = {"localhost", "127.0.0.1", "host.docker.internal"}
+ALLOWED_OLLAMA_HOSTS = {"localhost", "127.0.0.1"}
 if _parsed_ollama.hostname not in ALLOWED_OLLAMA_HOSTS:
     raise RuntimeError(f"OLLAMA_HOST must be localhost or 127.0.0.1 for security. Got: {_parsed_ollama.hostname}")
 
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
 
-# Security: API Key authentication (optional but recommended)
-API_KEY = os.getenv("API_KEY")  # If set, all API endpoints require this key
+# Security: API Key authentication
+API_KEY = os.getenv("API_KEY")
+REQUIRE_AUTH = os.getenv("REQUIRE_AUTH", "true").lower() == "true"
+if REQUIRE_AUTH and not API_KEY:
+    raise RuntimeError(
+        "API_KEY must be set when REQUIRE_AUTH=true. "
+        "Generate one with: openssl rand -hex 32"
+    )
 API_KEY_HEADER = "X-API-Key"
 
 # Security: Rate limiting configuration
@@ -89,8 +95,8 @@ async def verify_api_key(
     x_api_key: str = Header(None, alias="X-API-Key")
 ) -> None:
     """Verify API key if configured"""
-    # Skip auth for web interface
-    if request.url.path == "/" or request.url.path.startswith("/static"):
+    # Skip auth for web interface root page only
+    if request.url.path == "/":
         return
 
     if API_KEY:
@@ -114,16 +120,15 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
-        # CSP for the web interface
-        if request.url.path == "/":
-            response.headers["Content-Security-Policy"] = (
-                "default-src 'self'; "
-                "script-src 'self' 'unsafe-inline'; "
-                "style-src 'self' 'unsafe-inline'; "
-                "img-src 'self' data:; "
-                "connect-src 'self'; "
-                "frame-ancestors 'none';"
-            )
+        # CSP for all paths (unsafe-inline required for embedded HTML template)
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data:; "
+            "connect-src 'self'; "
+            "frame-ancestors 'none';"
+        )
         return response
 
 
@@ -183,6 +188,10 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 # Security: Restrict CORS to localhost only
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:8080,http://127.0.0.1:8080").split(",")
+for _origin in ALLOWED_ORIGINS:
+    _parsed = urlparse(_origin.strip())
+    if not _parsed.scheme or not _parsed.hostname:
+        raise RuntimeError(f"Invalid ALLOWED_ORIGINS entry: '{_origin}'. Must be a valid URL.")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
@@ -690,7 +699,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
         function escapeHtml(str) {
             if (!str) return '';
-            return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
         }
 
         // Security: Escape for use in HTML attributes (onclick handlers)

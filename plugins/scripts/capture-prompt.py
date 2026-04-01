@@ -39,6 +39,24 @@ EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
 
 import re
 
+# Patterns for secrets that should never be stored
+_SECRET_PATTERNS = [
+    re.compile(r'(?i)(api[_-]?key|secret|password|token|bearer)\s*[:=]\s*\S+'),
+    re.compile(r'sk-[a-zA-Z0-9]{20,}'),
+    re.compile(r'ghp_[a-zA-Z0-9]{36}'),
+    re.compile(r'gho_[a-zA-Z0-9]{36}'),
+    re.compile(r'-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----'),
+    re.compile(r'xox[bprs]-[a-zA-Z0-9-]+'),
+]
+
+
+def scrub_secrets(text: str) -> str:
+    """Remove potential secrets from text before storage."""
+    for pattern in _SECRET_PATTERNS:
+        text = pattern.sub('[REDACTED]', text)
+    return text
+
+
 def extract_project_name(cwd: str) -> str | None:
     """Extract project name from CLAUDE.md or fallback to directory name."""
     if not cwd:
@@ -159,8 +177,11 @@ async def main():
     if len(prompt_text.strip()) < 3:
         sys.exit(0)
 
+    # Scrub potential secrets before storage
+    prompt_text = scrub_secrets(prompt_text.strip())
+
     # Store the prompt
-    await store_prompt(session_id, prompt_text.strip(), project)
+    await store_prompt(session_id, prompt_text, project)
 
     # Always exit 0 to not block Claude
     sys.exit(0)
