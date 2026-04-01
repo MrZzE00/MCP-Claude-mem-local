@@ -1,7 +1,16 @@
 -- Migration 003: Row Level Security for multi-user isolation
--- Enables RLS on memories and user_prompts tables with user_id-based policies.
+-- Adds user_id/team_id columns if missing, enables RLS with user_id-based policies.
 
 BEGIN;
+
+-- Add user_id and team_id columns if they don't exist
+ALTER TABLE memories ADD COLUMN IF NOT EXISTS user_id VARCHAR(255);
+ALTER TABLE memories ADD COLUMN IF NOT EXISTS team_id VARCHAR(255);
+ALTER TABLE user_prompts ADD COLUMN IF NOT EXISTS user_id VARCHAR(255);
+
+-- Create indexes for user isolation
+CREATE INDEX IF NOT EXISTS idx_memories_user ON memories(user_id);
+CREATE INDEX IF NOT EXISTS idx_memories_team ON memories(team_id);
 
 -- Backfill NULL user_id with 'default'
 UPDATE memories SET user_id = 'default' WHERE user_id IS NULL;
