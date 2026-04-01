@@ -61,6 +61,11 @@ actr_config = ACTRConfig.from_env()
 pool = None
 
 
+async def _init_connection(conn):
+    """Set RLS session variable on each new connection."""
+    await conn.execute("SET app.current_user_id = $1", USER_ID)
+
+
 async def get_pool():
     """Obtenir le pool de connexions PostgreSQL"""
     global pool
@@ -72,7 +77,9 @@ async def get_pool():
             user=PG_USER,
             password=PG_PASSWORD,
             min_size=2,
-            max_size=10
+            max_size=10,
+            command_timeout=30,
+            init=_init_connection,
         )
     return pool
 
@@ -141,6 +148,8 @@ async def store_memory(
     if category not in VALID_CATEGORIES:
         return f"Invalid category '{category}'. Must be one of: {', '.join(sorted(VALID_CATEGORIES))}"
     importance = max(0.0, min(1.0, importance))
+    if len(content) > 50000:
+        return "Content too long (max 50000 characters)."
 
     try:
         embedding = await get_embedding(content)
@@ -320,6 +329,8 @@ async def list_memories(
     """
     # Input validation
     limit = max(1, min(100, limit))
+    if category and category not in VALID_CATEGORIES:
+        return f"Invalid category '{category}'. Must be one of: {', '.join(sorted(VALID_CATEGORIES))}"
 
     try:
         db = await get_pool()

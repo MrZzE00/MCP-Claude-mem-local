@@ -43,6 +43,12 @@ if _parsed_ollama.hostname not in ALLOWED_OLLAMA_HOSTS:
 
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
 
+# User isolation
+USER_ID = os.getenv("USER_ID", "default")
+
+# Security: Proxy trust (only trust X-Forwarded-For when behind a reverse proxy)
+TRUST_PROXY = os.getenv("TRUST_PROXY", "false").lower() == "true"
+
 # Security: API Key authentication
 API_KEY = os.getenv("API_KEY")
 REQUIRE_AUTH = os.getenv("REQUIRE_AUTH", "true").lower() == "true"
@@ -57,15 +63,17 @@ API_KEY_HEADER = "X-API-Key"
 RATE_LIMIT_REQUESTS = int(os.getenv("RATE_LIMIT_REQUESTS", "60"))  # requests per minute
 RATE_LIMIT_WINDOW = int(os.getenv("RATE_LIMIT_WINDOW", "60"))  # window in seconds
 
-# Simple in-memory rate limiter
+# Simple in-memory rate limiter (capped to prevent memory exhaustion)
 _rate_limit_store: dict[str, list[float]] = {}
+_MAX_TRACKED_IPS = 10000
 
 
 def get_client_ip(request: Request) -> str:
-    """Get client IP from request"""
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
+    """Get client IP from request (only trust X-Forwarded-For behind a proxy)"""
+    if TRUST_PROXY:
+        forwarded = request.headers.get("X-Forwarded-For")
+        if forwarded:
+            return forwarded.split(",")[0].strip()
     return request.client.host if request.client else "unknown"
 
 
@@ -73,6 +81,10 @@ def check_rate_limit(client_ip: str) -> bool:
     """Check if client has exceeded rate limit"""
     import time
     current_time = time.time()
+
+    # Evict all entries if store exceeds cap (prevent memory exhaustion)
+    if len(_rate_limit_store) > _MAX_TRACKED_IPS:
+        _rate_limit_store.clear()
 
     if client_ip not in _rate_limit_store:
         _rate_limit_store[client_ip] = []
@@ -145,6 +157,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+async def _init_connection(conn):
+    """Set RLS session variable on each new connection."""
+    await conn.execute("SET app.current_user_id = $1", USER_ID)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Gestion du cycle de vie de l'application"""
@@ -152,7 +169,8 @@ async def lifespan(app: FastAPI):
     pool = await asyncpg.create_pool(
         host=PG_HOST, port=PG_PORT, database=PG_DATABASE,
         user=PG_USER, password=PG_PASSWORD,
-        min_size=2, max_size=10
+        min_size=2, max_size=10, command_timeout=30,
+        init=_init_connection,
     )
     logger.info(f"Connected to PostgreSQL: {PG_DATABASE}")
     yield
@@ -204,18 +222,24 @@ app.add_middleware(
 @app.get("/api/stats")
 async def get_stats(request: Request, _: None = Depends(verify_api_key)):
     """Statistiques globales des mémoires"""
+    _uf = "(user_id = $1 OR user_id IS NULL)"
     async with pool.acquire() as conn:
-        total = await conn.fetchval("SELECT COUNT(*) FROM memories")
+        total = await conn.fetchval(f"SELECT COUNT(*) FROM memories WHERE {_uf}", USER_ID)
         by_category = await conn.fetch(
-            "SELECT category, COUNT(*) as count FROM memories GROUP BY category ORDER BY count DESC"
+            f"SELECT category, COUNT(*) as count FROM memories WHERE {_uf} GROUP BY category ORDER BY count DESC",
+            USER_ID
         )
         by_project = await conn.fetch(
-            "SELECT project_context, COUNT(*) as count FROM memories "
-            "WHERE project_context IS NOT NULL GROUP BY project_context ORDER BY count DESC LIMIT 10"
+            f"SELECT project_context, COUNT(*) as count FROM memories "
+            f"WHERE project_context IS NOT NULL AND {_uf} GROUP BY project_context ORDER BY count DESC LIMIT 10",
+            USER_ID
         )
-        total_prompts = await conn.fetchval("SELECT COUNT(*) FROM user_prompts")
+        total_prompts = await conn.fetchval(
+            f"SELECT COUNT(*) FROM user_prompts WHERE {_uf}", USER_ID
+        )
         recent = await conn.fetchval(
-            "SELECT COUNT(*) FROM memories WHERE created_at > NOW() - INTERVAL '7 days'"
+            f"SELECT COUNT(*) FROM memories WHERE created_at > NOW() - INTERVAL '7 days' AND {_uf}",
+            USER_ID
         )
 
     return {
@@ -241,13 +265,14 @@ async def get_memories(
         SELECT id, content, summary, category, tags, project_context,
                importance_score, created_at, access_count
         FROM memories
-        WHERE ($1::text IS NULL OR category = $1)
+        WHERE (user_id = $5 OR user_id IS NULL)
+          AND ($1::text IS NULL OR category = $1)
           AND ($2::text IS NULL OR project_context = $2)
         ORDER BY created_at DESC
         LIMIT $3 OFFSET $4
     """
     async with pool.acquire() as conn:
-        rows = await conn.fetch(query, category, project, limit, offset)
+        rows = await conn.fetch(query, category, project, limit, offset, USER_ID)
 
     return {
         "memories": [
@@ -293,11 +318,12 @@ async def search_memories(
                1 - (embedding <=> $1::vector) as similarity
         FROM memories
         WHERE 1 - (embedding <=> $1::vector) >= 0.3
+          AND (user_id = $3 OR user_id IS NULL)
         ORDER BY (1 - (embedding <=> $1::vector)) * importance_score DESC
         LIMIT $2
     """
     async with pool.acquire() as conn:
-        rows = await conn.fetch(query, embedding_str, limit)
+        rows = await conn.fetch(query, embedding_str, limit, USER_ID)
 
     return {
         "query": q,
@@ -329,7 +355,8 @@ async def get_prompts(
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             "SELECT id, prompt_text, prompt_number, created_at, project_context FROM user_prompts "
-            "ORDER BY created_at DESC LIMIT $1", limit
+            "WHERE (user_id = $2 OR user_id IS NULL) "
+            "ORDER BY created_at DESC LIMIT $1", limit, USER_ID
         )
 
     return {
@@ -541,7 +568,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 <div class="stat-card"><div class="stat-value">${data.recent_week}</div><div class="stat-label">Cette semaine</div></div>
             `;
             data.by_category.slice(0, 5).forEach(c => {
-                statsHtml += `<div class="stat-card"><div class="stat-value">${c.count}</div><div class="stat-label">${c.category}</div></div>`;
+                statsHtml += `<div class="stat-card"><div class="stat-value">${c.count}</div><div class="stat-label">${escapeHtml(c.category)}</div></div>`;
             });
             document.getElementById('statsGrid').innerHTML = statsHtml;
 

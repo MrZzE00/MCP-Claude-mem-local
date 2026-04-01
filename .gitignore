@@ -60,6 +60,9 @@ htmlcov/
 .pytest_cache/
 .tox/
 
+# Generated HTML (contains DB data, serve via api_server.py instead)
+viewer.html
+
 # Cryptographic material
 *.pem
 *.key

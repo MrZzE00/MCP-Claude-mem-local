@@ -33,7 +33,12 @@ PG_PASSWORD = os.getenv("PG_PASSWORD")
 if not PG_PASSWORD:
     # Silent exit for hooks - don't block Claude
     sys.exit(0)
+# Security: Validate OLLAMA_HOST to prevent SSRF
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+from urllib.parse import urlparse as _urlparse
+_parsed_ollama = _urlparse(OLLAMA_HOST)
+if _parsed_ollama.hostname not in {"localhost", "127.0.0.1"}:
+    sys.exit(0)
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
 
 
