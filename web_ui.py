@@ -469,7 +469,7 @@ async def generate_html():
     
     prompts_html = ""
     for p in prompts:
-        text = (p["prompt_text"] or "").replace("<", "&lt;").replace(">", "&gt;")
+        text = html.escape(p["prompt_text"] or "")
         created = p["created_at"].strftime("%d/%m/%Y %H:%M") if p["created_at"] else "N/A"
         prompts_html += f"""
         <div class="prompt-card">

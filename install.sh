@@ -196,11 +196,19 @@ fi
 
 log_success "Database user and database ready"
 
-# Enable pgvector extension and create schema
+# Enable extensions (requires superuser — run as postgres or admin user)
+log_info "Installing PostgreSQL extensions..."
+psql -U postgres -d "$DB_NAME" -c "CREATE EXTENSION IF NOT EXISTS vector;" 2>/dev/null || \
+psql -d "$DB_NAME" -c "CREATE EXTENSION IF NOT EXISTS vector;" 2>/dev/null || \
+log_warning "Could not create vector extension — may need to run as superuser"
+
+psql -U postgres -d "$DB_NAME" -c "CREATE EXTENSION IF NOT EXISTS pg_trgm;" 2>/dev/null || \
+psql -d "$DB_NAME" -c "CREATE EXTENSION IF NOT EXISTS pg_trgm;" 2>/dev/null || \
+log_warning "Could not create pg_trgm extension — may need to run as superuser"
+
+# Create schema (as application user)
 log_info "Initializing database schema..."
 psql -U "$DB_USER" -d "$DB_NAME" << 'EOSQL'
--- Enable pgvector extension
-CREATE EXTENSION IF NOT EXISTS vector;
 
 -- Memories table
 CREATE TABLE IF NOT EXISTS memories (
