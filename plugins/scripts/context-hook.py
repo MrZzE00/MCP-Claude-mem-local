@@ -144,7 +144,7 @@ def sanitize_path(directory: str) -> str | None:
             Path("/var/folders"),  # macOS temp
         ]
 
-        if not any(str(resolved).startswith(str(root)) for root in allowed_roots):
+        if not any(resolved.is_relative_to(root) for root in allowed_roots):
             return None
 
         return str(resolved)

@@ -42,46 +42,11 @@ def classify_memory_status(base_level: float) -> str:
         return "forgotten"
 
 
-async def compute_all_activations(pool, config: ACTRConfig | None = None) -> dict:
-    """Compute base-level activation for all non-deleted memories.
-
-    Only uses B(m) — no cosine similarity needed since this is
-    a global recalculation independent of any query.
-
-    Args:
-        pool: asyncpg connection pool.
-        config: ACTRConfig (uses defaults if None).
-
-    Returns:
-        Dict mapping memory UUID -> (base_level, new_status)
-    """
-    if config is None:
-        config = ACTRConfig()
-
-    async with pool.acquire() as conn:
-        rows = await conn.fetch("""
-            SELECT id, access_timestamps, created_at, memory_status
-            FROM memories
-            WHERE memory_status IS NULL
-               OR memory_status IN ('active', 'dormant', 'forgotten')
-        """)
-
-    results = {}
-    for row in rows:
-        access_ts = row["access_timestamps"] or []
-        created_at = row["created_at"]
-        if created_at and created_at.tzinfo is None:
-            created_at = created_at.replace(tzinfo=timezone.utc)
-
-        base_level = compute_base_level(access_ts, created_at, config.d)
-        new_status = classify_memory_status(base_level)
-        results[row["id"]] = (base_level, new_status)
-
-    return results
-
-
 async def update_memory_statuses(pool, config: ACTRConfig | None = None) -> dict:
     """Recalculate activations and update memory statuses in the database.
+
+    Uses SELECT ... FOR UPDATE with an advisory lock to prevent TOCTOU
+    race conditions between concurrent forgetting cycles.
 
     Args:
         pool: asyncpg connection pool.
@@ -90,46 +55,54 @@ async def update_memory_statuses(pool, config: ACTRConfig | None = None) -> dict
     Returns:
         Transition counts: {active: N, dormant: N, forgotten: N, unchanged: N}
     """
-    activations = await compute_all_activations(pool, config)
+    if config is None:
+        config = ACTRConfig()
 
     counters = {"active": 0, "dormant": 0, "forgotten": 0, "unchanged": 0}
     now = datetime.now(timezone.utc)
 
     async with pool.acquire() as conn:
-        # Fetch current statuses
-        rows = await conn.fetch("""
-            SELECT id, memory_status FROM memories
-            WHERE memory_status IS NULL
-               OR memory_status IN ('active', 'dormant', 'forgotten')
-        """)
-        current_statuses = {row["id"]: row["memory_status"] for row in rows}
+        async with conn.transaction():
+            # Advisory lock prevents concurrent forgetting cycles
+            await conn.execute("SELECT pg_advisory_xact_lock(42)")
 
-        # Batch updates by new status
-        updates = {"active": [], "dormant": [], "forgotten": []}
+            rows = await conn.fetch("""
+                SELECT id, access_timestamps, created_at, memory_status
+                FROM memories
+                WHERE memory_status IS NULL
+                   OR memory_status IN ('active', 'dormant', 'forgotten')
+                FOR UPDATE
+            """)
 
-        for memory_id, (base_level, new_status) in activations.items():
-            old_status = current_statuses.get(memory_id)
-            if old_status != new_status:
-                updates[new_status].append((memory_id, base_level))
-                counters[new_status] += 1
-            else:
-                counters["unchanged"] += 1
+            updates = {"active": [], "dormant": [], "forgotten": []}
 
-        # Apply batch updates
-        for status, memory_list in updates.items():
-            if not memory_list:
-                continue
-            ids = [m[0] for m in memory_list]
-            activations_vals = [m[1] for m in memory_list]
+            for row in rows:
+                access_ts = row["access_timestamps"] or []
+                created_at = row["created_at"]
+                if created_at and created_at.tzinfo is None:
+                    created_at = created_at.replace(tzinfo=timezone.utc)
 
-            # Update in batches for efficiency
-            await conn.executemany("""
-                UPDATE memories
-                SET memory_status = $1,
-                    actr_activation = $2,
-                    activation_updated_at = $3
-                WHERE id = $4
-            """, [(status, act, now, mid) for mid, act in zip(ids, activations_vals)])
+                base_level = compute_base_level(access_ts, created_at, config.d)
+                new_status = classify_memory_status(base_level)
+                old_status = row["memory_status"]
+
+                if old_status != new_status:
+                    updates[new_status].append((row["id"], base_level))
+                    counters[new_status] += 1
+                else:
+                    counters["unchanged"] += 1
+
+            # Apply batch updates within the same transaction
+            for status, memory_list in updates.items():
+                if not memory_list:
+                    continue
+                await conn.executemany("""
+                    UPDATE memories
+                    SET memory_status = $1,
+                        actr_activation = $2,
+                        activation_updated_at = $3
+                    WHERE id = $4
+                """, [(status, act, now, mid) for mid, act in memory_list])
 
     return counters
 
@@ -169,7 +142,7 @@ async def reactivate_memory(pool, memory_id) -> str:
     """Reactivate a forgotten or dormant memory by recording an access.
 
     This simulates forced recall — the memory gets a new access timestamp
-    and transitions back to active status.
+    and transitions back to active status. Uses ring buffer to cap timestamps.
 
     Args:
         pool: asyncpg connection pool.
@@ -182,7 +155,13 @@ async def reactivate_memory(pool, memory_id) -> str:
         result = await conn.execute("""
             UPDATE memories
             SET memory_status = 'active',
-                access_timestamps = array_append(access_timestamps, NOW()),
+                access_timestamps = (
+                    CASE
+                        WHEN array_length(COALESCE(access_timestamps, '{}'), 1) >= 1000
+                        THEN array_append(access_timestamps[2:], NOW())
+                        ELSE array_append(COALESCE(access_timestamps, '{}'), NOW())
+                    END
+                ),
                 access_count = access_count + 1,
                 last_accessed_at = NOW()
             WHERE id = $1
