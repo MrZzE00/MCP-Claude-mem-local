@@ -341,7 +341,7 @@ async def get_prompts(
 @app.get("/", response_class=HTMLResponse)
 async def serve_viewer():
     """Sert l'interface web dynamique"""
-    return HTML_TEMPLATE
+    return HTML_TEMPLATE.replace("__API_KEY__", API_KEY or "")
 
 
 HTML_TEMPLATE = """<!DOCTYPE html>
@@ -465,6 +465,15 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
     <script>
         const API = '';
+        const API_KEY = '__API_KEY__';
+        const _origFetch = window.fetch.bind(window);
+        window.fetch = function(input, init) {
+            init = init || {};
+            const headers = new Headers(init.headers || {});
+            if (API_KEY) headers.set('X-API-Key', API_KEY);
+            init.headers = headers;
+            return _origFetch(input, init);
+        };
         let currentCategory = null;
         let currentProject = null;
         let lastMemoryId = null;
