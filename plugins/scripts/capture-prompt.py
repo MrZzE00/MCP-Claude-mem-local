@@ -33,11 +33,34 @@ PG_PASSWORD = os.getenv("PG_PASSWORD")
 if not PG_PASSWORD:
     # Silent exit for hooks - don't block Claude
     sys.exit(0)
+# Security: Validate OLLAMA_HOST to prevent SSRF
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+from urllib.parse import urlparse as _urlparse
+_parsed_ollama = _urlparse(OLLAMA_HOST)
+if _parsed_ollama.hostname not in {"localhost", "127.0.0.1"}:
+    sys.exit(0)
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
 
 
 import re
+
+# Patterns for secrets that should never be stored
+_SECRET_PATTERNS = [
+    re.compile(r'(?i)(api[_-]?key|secret|password|token|bearer)\s*[:=]\s*\S+'),
+    re.compile(r'sk-[a-zA-Z0-9]{20,}'),
+    re.compile(r'ghp_[a-zA-Z0-9]{36}'),
+    re.compile(r'gho_[a-zA-Z0-9]{36}'),
+    re.compile(r'-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----'),
+    re.compile(r'xox[bprs]-[a-zA-Z0-9-]+'),
+]
+
+
+def scrub_secrets(text: str) -> str:
+    """Remove potential secrets from text before storage."""
+    for pattern in _SECRET_PATTERNS:
+        text = pattern.sub('[REDACTED]', text)
+    return text
+
 
 def extract_project_name(cwd: str) -> str | None:
     """Extract project name from CLAUDE.md or fallback to directory name."""
@@ -159,8 +182,11 @@ async def main():
     if len(prompt_text.strip()) < 3:
         sys.exit(0)
 
+    # Scrub potential secrets before storage
+    prompt_text = scrub_secrets(prompt_text.strip())
+
     # Store the prompt
-    await store_prompt(session_id, prompt_text.strip(), project)
+    await store_prompt(session_id, prompt_text, project)
 
     # Always exit 0 to not block Claude
     sys.exit(0)

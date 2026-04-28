@@ -17,6 +17,13 @@ NC='\033[0m' # No Color
 
 # Configuration
 INSTALL_DIR="${CLAUDE_MEMORY_HOME:-$HOME/claude-memory-local}"
+
+# Security: Validate INSTALL_DIR is under safe paths
+_resolved_dir=$(cd "$(dirname "$INSTALL_DIR")" 2>/dev/null && pwd)/$(basename "$INSTALL_DIR") 2>/dev/null || _resolved_dir="$INSTALL_DIR"
+if [[ "$_resolved_dir" != "$HOME"* && "$_resolved_dir" != "/opt"* ]]; then
+    echo -e "${RED}[ERROR]${NC} CLAUDE_MEMORY_HOME must be under \$HOME or /opt. Got: $_resolved_dir"
+    exit 1
+fi
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Database credentials
@@ -172,12 +179,13 @@ log_info "Setting up database..."
 # Create user if not exists
 if ! psql -U postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname='$DB_USER'" 2>/dev/null | grep -q 1; then
     log_info "Creating database user '$DB_USER'..."
-    createuser -s "$DB_USER" 2>/dev/null || psql -c "CREATE USER $DB_USER WITH SUPERUSER;" 2>/dev/null || true
+    createuser "$DB_USER" 2>/dev/null || psql -c "CREATE USER $DB_USER;" 2>/dev/null || true
 fi
 
-# Set password
-psql -c "ALTER USER $DB_USER PASSWORD '$DB_PASSWORD';" 2>/dev/null || \
-psql -U postgres -c "ALTER USER $DB_USER PASSWORD '$DB_PASSWORD';" 2>/dev/null || true
+# Set password (escape single quotes to prevent SQL injection)
+DB_PASSWORD_ESCAPED=$(printf '%s' "$DB_PASSWORD" | sed "s/'/''/g")
+psql -c "ALTER USER $DB_USER PASSWORD '${DB_PASSWORD_ESCAPED}';" 2>/dev/null || \
+psql -U postgres -c "ALTER USER $DB_USER PASSWORD '${DB_PASSWORD_ESCAPED}';" 2>/dev/null || true
 
 # Create database if not exists
 if ! psql -U "$DB_USER" -lqt 2>/dev/null | cut -d \| -f 1 | grep -qw "$DB_NAME"; then
@@ -188,11 +196,19 @@ fi
 
 log_success "Database user and database ready"
 
-# Enable pgvector extension and create schema
+# Enable extensions (requires superuser — run as postgres or admin user)
+log_info "Installing PostgreSQL extensions..."
+psql -U postgres -d "$DB_NAME" -c "CREATE EXTENSION IF NOT EXISTS vector;" 2>/dev/null || \
+psql -d "$DB_NAME" -c "CREATE EXTENSION IF NOT EXISTS vector;" 2>/dev/null || \
+log_warning "Could not create vector extension — may need to run as superuser"
+
+psql -U postgres -d "$DB_NAME" -c "CREATE EXTENSION IF NOT EXISTS pg_trgm;" 2>/dev/null || \
+psql -d "$DB_NAME" -c "CREATE EXTENSION IF NOT EXISTS pg_trgm;" 2>/dev/null || \
+log_warning "Could not create pg_trgm extension — may need to run as superuser"
+
+# Create schema (as application user)
 log_info "Initializing database schema..."
 psql -U "$DB_USER" -d "$DB_NAME" << 'EOSQL'
--- Enable pgvector extension
-CREATE EXTENSION IF NOT EXISTS vector;
 
 -- Memories table
 CREATE TABLE IF NOT EXISTS memories (
@@ -257,6 +273,14 @@ GROUP BY category
 ORDER BY count DESC;
 EOSQL
 
+# Grant least-privilege permissions (extensions created by postgres superuser above)
+log_info "Setting least-privilege permissions..."
+psql -U postgres -d "$DB_NAME" -c "GRANT CONNECT ON DATABASE $DB_NAME TO $DB_USER;" 2>/dev/null || true
+psql -U postgres -d "$DB_NAME" -c "GRANT USAGE ON SCHEMA public TO $DB_USER;" 2>/dev/null || true
+psql -U postgres -d "$DB_NAME" -c "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO $DB_USER;" 2>/dev/null || true
+psql -U postgres -d "$DB_NAME" -c "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO $DB_USER;" 2>/dev/null || true
+psql -U postgres -d "$DB_NAME" -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO $DB_USER;" 2>/dev/null || true
+
 log_success "Database schema initialized"
 
 # ===========================================
@@ -268,7 +292,16 @@ if ! check_command "ollama"; then
     if [[ "$OS" == "macos" ]]; then
         brew install ollama
     else
-        curl -fsSL https://ollama.com/install.sh | sh
+        OLLAMA_INSTALLER=$(mktemp)
+        curl -fsSL https://ollama.com/install.sh -o "$OLLAMA_INSTALLER"
+        if ! head -1 "$OLLAMA_INSTALLER" | grep -q "^#!"; then
+            log_error "Downloaded Ollama installer does not appear to be a shell script"
+            rm -f "$OLLAMA_INSTALLER"
+            exit 1
+        fi
+        log_info "Ollama installer downloaded and validated. Installing..."
+        bash "$OLLAMA_INSTALLER"
+        rm -f "$OLLAMA_INSTALLER"
     fi
 fi
 log_success "Ollama found"
@@ -351,7 +384,8 @@ EMBEDDING_DIMENSIONS=768
 WEB_PORT=8080
 EOF
 
-log_success "Configuration created at $INSTALL_DIR/.env"
+chmod 600 "$INSTALL_DIR/.env"
+log_success "Configuration created at $INSTALL_DIR/.env (permissions: 600)"
 
 # Create start script
 cat > "$INSTALL_DIR/start-server.sh" << EOF
@@ -462,9 +496,9 @@ echo ""
 echo -e "${YELLOW}Database credentials (saved to .env):${NC}"
 echo "  User: $DB_USER"
 echo "  Database: $DB_NAME"
-echo -e "  Password: ${YELLOW}$DB_PASSWORD${NC}"
+echo "  Password: stored in $INSTALL_DIR/.env (view with: grep PG_PASSWORD $INSTALL_DIR/.env)"
 echo ""
-echo -e "${RED}IMPORTANT: Save this password securely! It won't be shown again.${NC}"
+echo -e "${RED}IMPORTANT: Keep your .env file secure! Permissions set to 600.${NC}"
 echo ""
 echo "Services:"
 echo "  • PostgreSQL 17: localhost:5432 (auto-starts on boot)"
@@ -489,7 +523,7 @@ echo "  memory_stats      - View statistics"
 echo "  delete_memory     - Delete a memory"
 echo ""
 echo "Web UI:"
-echo "  cd $INSTALL_DIR && python3 -m http.server 8080"
+echo "  cd $INSTALL_DIR && python3 -m http.server 8080 --bind 127.0.0.1"
 echo "  Open: http://localhost:8080/viewer.html"
 echo ""
 echo "Context injection:"

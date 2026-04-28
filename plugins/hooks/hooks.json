@@ -9,7 +9,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_MEMORY_HOME:-$HOME/claude-memory-local}/venv/bin/python3\" \"${CLAUDE_MEMORY_HOME:-$HOME/claude-memory-local}/plugin/scripts/capture-prompt.py\"",
+            "command": "\"${CLAUDE_MEMORY_HOME:-$HOME/claude-memory-local}/venv/bin/python3\" \"${CLAUDE_MEMORY_HOME:-$HOME/claude-memory-local}/plugins/scripts/capture-prompt.py\"",
             "timeout": 10,
             "failOnError": false
           }
@@ -22,7 +22,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_MEMORY_HOME:-$HOME/claude-memory-local}/venv/bin/python3\" \"${CLAUDE_MEMORY_HOME:-$HOME/claude-memory-local}/plugin/scripts/context-hook.py\" session-start",
+            "command": "\"${CLAUDE_MEMORY_HOME:-$HOME/claude-memory-local}/venv/bin/python3\" \"${CLAUDE_MEMORY_HOME:-$HOME/claude-memory-local}/plugins/scripts/context-hook.py\" session-start",
             "timeout": 30,
             "failOnError": false
           }
@@ -36,7 +36,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_MEMORY_HOME:-$HOME/claude-memory-local}/venv/bin/python3\" \"${CLAUDE_MEMORY_HOME:-$HOME/claude-memory-local}/plugin/scripts/context-hook.py\" post-tool",
+            "command": "\"${CLAUDE_MEMORY_HOME:-$HOME/claude-memory-local}/venv/bin/python3\" \"${CLAUDE_MEMORY_HOME:-$HOME/claude-memory-local}/plugins/scripts/context-hook.py\" post-tool",
             "timeout": 30,
             "failOnError": false
           }
@@ -49,7 +49,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_MEMORY_HOME:-$HOME/claude-memory-local}/venv/bin/python3\" \"${CLAUDE_MEMORY_HOME:-$HOME/claude-memory-local}/plugin/scripts/context-hook.py\" stop",
+            "command": "\"${CLAUDE_MEMORY_HOME:-$HOME/claude-memory-local}/venv/bin/python3\" \"${CLAUDE_MEMORY_HOME:-$HOME/claude-memory-local}/plugins/scripts/context-hook.py\" stop",
             "timeout": 30,
             "failOnError": false
           }

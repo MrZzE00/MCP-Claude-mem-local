@@ -12,6 +12,7 @@ import asyncpg
 import httpx
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
+from urllib.parse import urlparse
 
 # ACT-R cognitive scoring
 from actr_scoring import ACTRConfig, score_and_rank_memories
@@ -36,14 +37,35 @@ PG_USER = os.getenv("PG_USER", "claude")
 PG_PASSWORD = os.getenv("PG_PASSWORD")
 if not PG_PASSWORD:
     raise RuntimeError("PG_PASSWORD environment variable is required. Set it in .env file.")
+# Security: Validate OLLAMA_HOST to prevent SSRF
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+_parsed_ollama = urlparse(OLLAMA_HOST)
+ALLOWED_OLLAMA_HOSTS = {"localhost", "127.0.0.1"}
+if _parsed_ollama.hostname not in ALLOWED_OLLAMA_HOSTS:
+    raise RuntimeError(f"OLLAMA_HOST must be localhost or 127.0.0.1 for security. Got: {_parsed_ollama.hostname}")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
+
+# Valid categories for input validation
+VALID_CATEGORIES = frozenset({
+    "bugfix", "decision", "feature", "discovery", "refactor",
+    "change", "learning", "pattern", "error_solution", "preference"
+})
+
+# User isolation
+USER_ID = os.getenv("USER_ID", "default")
 
 # Load ACT-R configuration
 actr_config = ACTRConfig.from_env()
 
 # Pool de connexions global
 pool = None
+
+
+async def _init_connection(conn):
+    """Set RLS session variable on each new connection."""
+    # SET does not support $1 parameters in PostgreSQL; sanitize and interpolate
+    safe_id = USER_ID.replace("'", "''")
+    await conn.execute(f"SET app.current_user_id = '{safe_id}'")
 
 
 async def get_pool():
@@ -57,7 +79,9 @@ async def get_pool():
             user=PG_USER,
             password=PG_PASSWORD,
             min_size=2,
-            max_size=10
+            max_size=10,
+            command_timeout=30,
+            init=_init_connection,
         )
     return pool
 
@@ -78,6 +102,9 @@ async def lifespan(server):
 
 
 # Initialiser le serveur MCP avec lifespan
+# Security: MCP stdio transport is inherently trusted — the calling process
+# (Claude Code) controls the pipe. No additional auth layer is needed for stdio.
+# If the transport is ever changed to SSE/HTTP, authentication MUST be added.
 mcp = FastMCP("claude-memory-local", lifespan=lifespan)
 
 
@@ -119,20 +146,27 @@ async def store_memory(
     Returns:
         ID de la memoire creee
     """
+    # Input validation
+    if category not in VALID_CATEGORIES:
+        return f"Invalid category '{category}'. Must be one of: {', '.join(sorted(VALID_CATEGORIES))}"
+    importance = max(0.0, min(1.0, importance))
+    if len(content) > 50000:
+        return "Content too long (max 50000 characters)."
+
     try:
         embedding = await get_embedding(content)
-        
+
         if not summary:
             summary = content[:150] + "..." if len(content) > 150 else content
         
         db = await get_pool()
         async with db.acquire() as conn:
             result = await conn.fetchrow("""
-                INSERT INTO memories 
-                (content, summary, category, tags, embedding, importance_score, project_context)
-                VALUES ($1, $2, $3, $4, $5::vector, $6, $7)
+                INSERT INTO memories
+                (content, summary, category, tags, embedding, importance_score, project_context, user_id)
+                VALUES ($1, $2, $3, $4, $5::vector, $6, $7, $8)
                 RETURNING id
-            """, content, summary, category, tags or [], format_embedding(embedding), importance, project)
+            """, content, summary, category, tags or [], format_embedding(embedding), importance, project, USER_ID)
         
         return f"Memoire stockee avec ID: {result['id']}"
     except Exception as e:
@@ -165,6 +199,10 @@ async def retrieve_memories(
     Returns:
         Les memoires pertinentes formatees
     """
+    # Input validation
+    max_results = max(1, min(100, max_results))
+    min_similarity = max(0.0, min(1.0, min_similarity))
+
     try:
         query_embedding = await get_embedding(query)
         embedding_str = format_embedding(query_embedding)
@@ -183,6 +221,7 @@ async def retrieve_memories(
                 tags=tags,
                 project=project,
                 include_forgotten=include_forgotten,
+                user_id=USER_ID,
             )
 
             # Stage 1a: Vector search (always available)
@@ -229,18 +268,21 @@ async def retrieve_memories(
                 )
                 final_rows = fused[:max_results]
 
-            # Record access timestamps for retrieved memories
+            # Record access timestamps for retrieved memories (ring buffer: cap at 1000)
             ids = [row['id'] for row in final_rows]
             await conn.execute("""
                 UPDATE memories
                 SET last_accessed_at = NOW(),
                     access_count = access_count + 1,
-                    access_timestamps = array_append(
-                        COALESCE(access_timestamps, '{}'),
-                        NOW()
+                    access_timestamps = (
+                        CASE
+                            WHEN array_length(COALESCE(access_timestamps, '{}'), 1) >= 1000
+                            THEN array_append(access_timestamps[2:], NOW())
+                            ELSE array_append(COALESCE(access_timestamps, '{}'), NOW())
+                        END
                     )
-                WHERE id = ANY($1)
-            """, ids)
+                WHERE id = ANY($1) AND (user_id = $2 OR user_id IS NULL)
+            """, ids, USER_ID)
 
         # Format results
         results = []
@@ -287,13 +329,18 @@ async def list_memories(
     Returns:
         Liste des memoires avec leurs metadonnees
     """
+    # Input validation
+    limit = max(1, min(100, limit))
+    if category and category not in VALID_CATEGORIES:
+        return f"Invalid category '{category}'. Must be one of: {', '.join(sorted(VALID_CATEGORIES))}"
+
     try:
         db = await get_pool()
         async with db.acquire() as conn:
             # Build dynamic WHERE clause with positional params
-            conditions = []
-            params = []
-            param_idx = 1
+            conditions = ["(user_id = $1 OR user_id IS NULL)"]
+            params = [USER_ID]
+            param_idx = 2
 
             if category:
                 conditions.append(f"category = ${param_idx}")
@@ -356,11 +403,16 @@ async def delete_memory(memory_id: str) -> str:
         Confirmation de suppression
     """
     try:
+        parsed_id = UUID(memory_id)
+    except (ValueError, AttributeError):
+        return "Invalid memory ID format. Must be a valid UUID."
+
+    try:
         db = await get_pool()
         async with db.acquire() as conn:
             result = await conn.execute(
-                "DELETE FROM memories WHERE id = $1",
-                UUID(memory_id)
+                "DELETE FROM memories WHERE id = $1 AND (user_id = $2 OR user_id IS NULL)",
+                parsed_id, USER_ID
             )
         
         if result == "DELETE 1":
@@ -384,35 +436,36 @@ async def memory_stats() -> str:
     try:
         db = await get_pool()
         async with db.acquire() as conn:
-            total = await conn.fetchval("SELECT COUNT(*) FROM memories")
-            by_category = await conn.fetch("""
+            _uf = "(user_id = $1 OR user_id IS NULL)"
+            total = await conn.fetchval(f"SELECT COUNT(*) FROM memories WHERE {_uf}", USER_ID)
+            by_category = await conn.fetch(f"""
                 SELECT category, COUNT(*) as count
-                FROM memories
+                FROM memories WHERE {_uf}
                 GROUP BY category
                 ORDER BY count DESC
-            """)
-            recent = await conn.fetchval("""
+            """, USER_ID)
+            recent = await conn.fetchval(f"""
                 SELECT COUNT(*) FROM memories
-                WHERE created_at > NOW() - INTERVAL '7 days'
-            """)
-            most_accessed = await conn.fetch("""
+                WHERE created_at > NOW() - INTERVAL '7 days' AND {_uf}
+            """, USER_ID)
+            most_accessed = await conn.fetch(f"""
                 SELECT summary, access_count
-                FROM memories
+                FROM memories WHERE {_uf}
                 ORDER BY access_count DESC
                 LIMIT 5
-            """)
+            """, USER_ID)
 
             # ACT-R status counts
-            by_status = await conn.fetch("""
+            by_status = await conn.fetch(f"""
                 SELECT COALESCE(memory_status, 'active') as status, COUNT(*) as count
-                FROM memories
+                FROM memories WHERE {_uf}
                 GROUP BY COALESCE(memory_status, 'active')
                 ORDER BY count DESC
-            """)
-            avg_activation = await conn.fetchval("""
+            """, USER_ID)
+            avg_activation = await conn.fetchval(f"""
                 SELECT AVG(actr_activation) FROM memories
-                WHERE actr_activation IS NOT NULL
-            """)
+                WHERE actr_activation IS NOT NULL AND {_uf}
+            """, USER_ID)
 
         stats = f"""## Statistiques Memoire
 
