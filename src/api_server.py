@@ -421,6 +421,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         .filter-btn:hover, .filter-btn.active { background: #a855f7; border-color: #a855f7; }
         .project-btn { padding: 6px 14px; border: 1px solid rgba(0,217,255,0.3); border-radius: 20px; background: transparent; color: #00d9ff; cursor: pointer; font-size: 0.85em; }
         .project-btn:hover, .project-btn.active { background: rgba(0,217,255,0.3); }
+        .project-select { padding: 6px 12px; border: 1px solid rgba(0,217,255,0.3); border-radius: 8px; background: #16213e; color: #00d9ff; cursor: pointer; font-size: 0.9em; min-width: 220px; }
+        .project-select:focus { outline: none; border-color: #00d9ff; }
+        .project-select option { background: #16213e; color: #eee; }
         .memories-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 20px; contain: layout style; }
         .memory-card { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 20px; transition: transform 0.2s; }
         .memory-card:hover { transform: translateY(-2px); box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
@@ -597,15 +600,18 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             });
             document.getElementById('categoryFilters').innerHTML = catHtml;
 
-            // Project filters - use escapeHtml and escapeAttr for XSS prevention
-            let projHtml = '<span style="color:#888;margin-right:5px;">Projet:</span>';
-            projHtml += `<button class="project-btn ${!currentProject ? 'active' : ''}" onclick="filterProject(null)">Tous</button>`;
+            // Project filter as dropdown - use escapeHtml and escapeAttr for XSS prevention
+            let projHtml = '<label for="projectSelect" style="color:#888;margin-right:8px;">Projet:</label>';
+            projHtml += `<select id="projectSelect" class="project-select" onchange="filterProject(this.value || null)">`;
+            projHtml += `<option value="" ${!currentProject ? 'selected' : ''}>Tous</option>`;
             data.by_project.forEach(p => {
                 if (p.project) {
                     const safeProj = escapeAttr(p.project);
-                    projHtml += `<button class="project-btn ${currentProject === p.project ? 'active' : ''}" onclick="filterProject('${safeProj}')">${escapeHtml(p.project.substring(0,20))} (${p.count})</button>`;
+                    const sel = currentProject === p.project ? 'selected' : '';
+                    projHtml += `<option value="${safeProj}" ${sel}>${escapeHtml(p.project.substring(0,40))} (${p.count})</option>`;
                 }
             });
+            projHtml += `</select>`;
             document.getElementById('projectFilters').innerHTML = projHtml;
         }
 
