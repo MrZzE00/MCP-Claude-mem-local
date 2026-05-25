@@ -84,7 +84,7 @@ async def get_pool():
             from google.cloud.alloydb.connector import AsyncConnector, IPTypes
             connector = AsyncConnector()
             
-            async def getconn():
+            async def getconn(*args, **kwargs):
                 return await connector.connect(
                     ALLOYDB_INSTANCE_URI,
                     "asyncpg",
