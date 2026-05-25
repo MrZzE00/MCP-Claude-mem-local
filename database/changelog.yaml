@@ -7,5 +7,5 @@ databaseChangeLog:
         - sqlFile:
             path: db-init.sql
             relativeToChangelogFile: true
-            splitStatements: true
+            splitStatements: false
             stripComments: false

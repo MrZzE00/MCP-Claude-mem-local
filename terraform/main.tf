@@ -28,6 +28,12 @@ locals {
   # Le user IAM AlloyDB est l'email du SA sans le suffixe .gserviceaccount.com
   alloydb_iam_user = replace(var.service_account_email, ".gserviceaccount.com", "")
 
+  # Extrait dynamiquement le nom de l'environnement (prd, dev, etc.) à partir de la variable service_account_email.
+  # Format du SA : sa-<service_name>-<env>@<project>.iam.gserviceaccount.com
+  # Comme le workspace Terraform du projet externe reste à "default", nous extrayons le vrai env ici.
+  sa_name  = split("@", var.service_account_email)[0]
+  env_name = replace(local.sa_name, "sa-${var.service_name}-", "")
+
   # Image des migrations : si non fournie, dérive du registry de l'image principale
   # ex: europe-west1-docker.pkg.dev/proj/reg/mcp-claude-memory:v1.0.6
   #  → europe-west1-docker.pkg.dev/proj/reg/mcp-claude-memory-db-migrations:v1.0.6
@@ -79,6 +85,14 @@ data "google_secret_manager_secret_version" "iap_client_secret" {
   project = var.project_id
 }
 
+# Autorise le Service Account à lire le secret du mot de passe admin AlloyDB de son environnement
+resource "google_secret_manager_secret_iam_member" "alloydb_password_access" {
+  project   = var.project_id
+  secret_id = "alloydb-password-${local.env_name}"
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${var.service_account_email}"
+}
+
 # ─── Job Cloud Run : Migrations Liquibase ────────────────────────────────────
 
 resource "google_cloud_run_v2_job" "db_migrations" {
@@ -104,7 +118,7 @@ resource "google_cloud_run_v2_job" "db_migrations" {
 
         env {
           name  = "USE_IAM_AUTH"
-          value = var.use_iam_auth ? "true" : "false"
+          value = "false"
         }
         env {
           name  = "PG_HOST"
@@ -120,7 +134,16 @@ resource "google_cloud_run_v2_job" "db_migrations" {
         }
         env {
           name  = "PG_USER"
-          value = local.alloydb_iam_user
+          value = "postgres"
+        }
+        env {
+          name = "PG_PASSWORD"
+          value_source {
+            secret_key_ref {
+              secret  = "alloydb-password-${local.env_name}"
+              version = "latest"
+            }
+          }
         }
       }
     }
@@ -128,6 +151,7 @@ resource "google_cloud_run_v2_job" "db_migrations" {
 
   depends_on = [
     google_project_iam_member.vertex_ai_user,
+    google_secret_manager_secret_iam_member.alloydb_password_access,
   ]
 }
 
