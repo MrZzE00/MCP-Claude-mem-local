@@ -107,7 +107,33 @@ async def update_memory_statuses(pool, config: ACTRConfig | None = None) -> dict
     return counters
 
 
+async def compute_all_activations(pool, config: ACTRConfig | None = None) -> dict:
+    """Compute base-level activation and determine status for all memories.
+
+    This function is primarily used by unit tests and monitoring utilities.
+    """
+    if config is None:
+        config = ACTRConfig()
+
+    results = {}
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT id, access_timestamps, created_at, memory_status
+            FROM memories
+        """)
+        for row in rows:
+            access_ts = row["access_timestamps"] or []
+            created_at = row["created_at"]
+            if created_at and created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=timezone.utc)
+            base_level = compute_base_level(access_ts, created_at, config.d)
+            status = classify_memory_status(base_level)
+            results[row["id"]] = (base_level, status)
+    return results
+
+
 async def run_forgetting_cycle(pool, config: ACTRConfig | None = None) -> str:
+
     """Execute a full forgetting cycle.
 
     Computes activation for all memories, updates statuses,

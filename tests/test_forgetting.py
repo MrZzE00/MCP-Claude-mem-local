@@ -25,11 +25,18 @@ from forgetting import (
 def make_mock_pool(mock_conn):
     """Create a mock pool that properly supports async with pool.acquire()."""
     mock_pool = MagicMock()
-    cm = AsyncMock()
-    cm.__aenter__.return_value = mock_conn
-    cm.__aexit__.return_value = None
-    mock_pool.acquire.return_value = cm
+    
+    # Properly mock pool.acquire() as an async context manager
+    mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
+    mock_pool.acquire.return_value.__aexit__ = AsyncMock(return_value=False)
+    
+    # Properly mock conn.transaction() as an async context manager
+    mock_conn.transaction = MagicMock()
+    mock_conn.transaction.return_value.__aenter__ = AsyncMock()
+    mock_conn.transaction.return_value.__aexit__ = AsyncMock(return_value=False)
+    
     return mock_pool
+
 
 
 class TestClassifyMemoryStatus:

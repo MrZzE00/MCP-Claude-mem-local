@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """MCP-Claude-mem-local - Serveur MCP pour mémoire persistante locale"""
+# Dummy change to test source change detection
+
 
 import logging
 import os
@@ -35,7 +37,11 @@ PG_PORT = int(os.getenv("PG_PORT", "5432"))
 PG_DATABASE = os.getenv("PG_DATABASE", "claude_memory")
 PG_USER = os.getenv("PG_USER", "claude")
 PG_PASSWORD = os.getenv("PG_PASSWORD")
-if not PG_PASSWORD:
+
+USE_IAM_AUTH = os.getenv("USE_IAM_AUTH", "false").lower() == "true"
+ALLOYDB_INSTANCE_URI = os.getenv("ALLOYDB_INSTANCE_URI")
+
+if not USE_IAM_AUTH and not PG_PASSWORD:
     raise RuntimeError("PG_PASSWORD environment variable is required. Set it in .env file.")
 # Security: Validate OLLAMA_HOST to prevent SSRF
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
@@ -57,8 +63,9 @@ USER_ID = os.getenv("USER_ID", "default")
 # Load ACT-R configuration
 actr_config = ACTRConfig.from_env()
 
-# Pool de connexions global
+# Pool de connexions global et connecteur AlloyDB IAM
 pool = None
+connector = None
 
 
 async def _init_connection(conn):
@@ -70,34 +77,62 @@ async def _init_connection(conn):
 
 async def get_pool():
     """Obtenir le pool de connexions PostgreSQL"""
-    global pool
+    global pool, connector
     if pool is None:
-        pool = await asyncpg.create_pool(
-            host=PG_HOST,
-            port=PG_PORT,
-            database=PG_DATABASE,
-            user=PG_USER,
-            password=PG_PASSWORD,
-            min_size=2,
-            max_size=10,
-            command_timeout=30,
-            init=_init_connection,
-        )
+        if USE_IAM_AUTH and ALLOYDB_INSTANCE_URI:
+            logger.info(f"Initialisation de la connexion IAM AlloyDB vers {ALLOYDB_INSTANCE_URI}...")
+            from google.cloud.alloydb.connector import AsyncConnector, IPTypes
+            connector = AsyncConnector()
+            
+            async def getconn():
+                return await connector.connect(
+                    ALLOYDB_INSTANCE_URI,
+                    "asyncpg",
+                    user=PG_USER,
+                    db=PG_DATABASE,
+                    enable_iam_auth=True,
+                    ip_type=IPTypes.PRIVATE
+                )
+            
+            pool = await asyncpg.create_pool(
+                connect=getconn,
+                min_size=2,
+                max_size=10,
+                command_timeout=30,
+                init=_init_connection,
+            )
+        else:
+            logger.info(f"Connexion PostgreSQL classique vers {PG_DATABASE} ({PG_HOST}:{PG_PORT})...")
+            pool = await asyncpg.create_pool(
+                host=PG_HOST,
+                port=PG_PORT,
+                database=PG_DATABASE,
+                user=PG_USER,
+                password=PG_PASSWORD,
+                min_size=2,
+                max_size=10,
+                command_timeout=30,
+                init=_init_connection,
+            )
     return pool
 
 
 @asynccontextmanager
 async def lifespan(server):
-    """Gère le cycle de vie du serveur : cleanup du pool à l'arrêt."""
+    """Gère le cycle de vie du serveur : cleanup du pool et du connecteur à l'arrêt."""
     logger.info("Lifespan: démarrage")
     try:
         yield
     finally:
-        global pool
+        global pool, connector
         if pool is not None:
             logger.info("Lifespan: fermeture du pool PostgreSQL")
             await pool.close()
             pool = None
+        if connector is not None:
+            logger.info("Lifespan: fermeture du connecteur AlloyDB IAM")
+            await connector.close()
+            connector = None
         logger.info("Lifespan: cleanup terminé")
 
 
@@ -108,8 +143,32 @@ async def lifespan(server):
 mcp = FastMCP("claude-memory-local", lifespan=lifespan)
 
 
+EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "ollama").lower()
+_vertex_model = None
+
+def get_embedding_vertex(text: str) -> list[float]:
+    """Générer un embedding via Vertex AI (Google Cloud)"""
+    global _vertex_model
+    if _vertex_model is None:
+        import vertexai
+        from vertexai.language_models import TextEmbeddingModel
+        project = os.getenv("GCP_PROJECT")
+        location = os.getenv("GCP_REGION", "europe-west9")
+        # Initialize Vertex AI with ambient credentials in GCP environment
+        vertexai.init(project=project, location=location)
+        _vertex_model = TextEmbeddingModel.from_pretrained("text-embedding-004")
+    
+    # Request embeddings with 768 dimensions (text-embedding-004 default)
+    embeddings = _vertex_model.get_embeddings([text])
+    return embeddings[0].values
+
 async def get_embedding(text: str) -> list[float]:
-    """Générer un embedding via Ollama local"""
+    """Générer un embedding via Ollama local ou Vertex AI"""
+    if EMBEDDING_PROVIDER == "vertexai":
+        import asyncio
+        return await asyncio.to_thread(get_embedding_vertex, text)
+    
+    # Fallback to local Ollama embedding
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(
             f"{OLLAMA_HOST}/api/embeddings",
@@ -425,6 +484,22 @@ async def delete_memory(memory_id: str) -> str:
         return "Erreur: impossible de supprimer la memoire. Verifiez l'ID et la connexion."
 
 
+def get_version() -> str:
+    """Read version from VERSION file, falling back to '1.0.0' if not present."""
+    try:
+        # Check if the VERSION file exists in the current directory or parent directory
+        version_path = os.path.join(os.path.dirname(__file__), "..", "VERSION")
+        if not os.path.exists(version_path):
+            version_path = os.path.join(os.path.dirname(__file__), "VERSION")
+        if not os.path.exists(version_path):
+            version_path = "VERSION"
+            
+        with open(version_path, "r") as f:
+            return f.read().strip()
+    except Exception:
+        return "1.0.0"
+
+
 @mcp.tool()
 async def memory_stats() -> str:
     """
@@ -467,7 +542,7 @@ async def memory_stats() -> str:
                 WHERE actr_activation IS NOT NULL AND {_uf}
             """, USER_ID)
 
-        stats = f"""## Statistiques Memoire
+        stats = f"""## Statistiques Memoire (Version: {get_version()})
 
 **Total**: {total} memoires
 **Cette semaine**: {recent} nouvelles

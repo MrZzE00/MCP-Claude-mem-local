@@ -76,3 +76,7 @@ secrets/
 # Security scan results
 *.sarif
 security-reports/
+src/forgetting.py
+terraform/.terraform/*
+terraform/.terraform.lock.hcl
+terraform/.terraform.tfstate.lock.info
