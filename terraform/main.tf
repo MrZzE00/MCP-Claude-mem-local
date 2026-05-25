@@ -110,7 +110,7 @@ resource "google_cloud_run_v2_job" "db_migrations" {
           network    = var.vpc_network_id
           subnetwork = var.vpc_subnet_id
         }
-        egress = "ALL_TRAFFIC"
+        egress = "PRIVATE_RANGES_ONLY"
       }
 
       containers {
@@ -189,6 +189,28 @@ resource "google_cloud_run_v2_service" "mcp_service" {
         container_port = 8080
       }
 
+      startup_probe {
+        initial_delay_seconds = 10
+        timeout_seconds       = 3
+        period_seconds        = 5
+        failure_threshold     = 24
+        http_get {
+          path = "/health"
+          port = 8080
+        }
+      }
+
+      liveness_probe {
+        initial_delay_seconds = 15
+        timeout_seconds       = 3
+        period_seconds        = 10
+        failure_threshold     = 3
+        http_get {
+          path = "/ready"
+          port = 8080
+        }
+      }
+
       resources {
         limits = {
           cpu    = "1"
@@ -245,7 +267,7 @@ resource "google_cloud_run_v2_service" "mcp_service" {
         network    = var.vpc_network_id
         subnetwork = var.vpc_subnet_id
       }
-      egress = "ALL_TRAFFIC"
+      egress = "PRIVATE_RANGES_ONLY"
     }
 
     scaling {
@@ -310,4 +332,13 @@ resource "google_compute_backend_service" "mcp_backend" {
   }
 
   enable_cdn = false
+}
+
+# Autorise le Service Account dédié à franchir l'IAP pour les sanity checks automatiques
+resource "google_iap_web_backend_service_iam_member" "mcp_iap_sa_accessor" {
+  count               = var.enable_iap && var.iap_oauth_client_id != "" ? 1 : 0
+  project             = var.project_id
+  web_backend_service = google_compute_backend_service.mcp_backend.name
+  role                = "roles/iap.httpsResourceAccessor"
+  member              = "serviceAccount:${var.service_account_email}"
 }
