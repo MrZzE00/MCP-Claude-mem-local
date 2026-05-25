@@ -11,6 +11,10 @@ terraform {
       source  = "hashicorp/google"
       version = ">= 6.0.0"
     }
+    google-beta = {
+      source  = "hashicorp/google-beta"
+      version = ">= 6.0.0"
+    }
     null = {
       source  = "hashicorp/null"
       version = ">= 3.0.0"
@@ -19,6 +23,11 @@ terraform {
 }
 
 provider "google" {
+  project = var.project_id
+  region  = var.region
+}
+
+provider "google-beta" {
   project = var.project_id
   region  = var.region
 }
@@ -291,6 +300,26 @@ resource "google_cloud_run_v2_service_iam_member" "mcp_service_invoker" {
   role     = "roles/run.invoker"
   member   = "allUsers"
 }
+
+# Récupère les métadonnées du projet courant (dont le Project Number pour l'IAP)
+data "google_project" "project" {}
+
+# Provisionne et récupère l'identité (Service Agent) d'IAP pour le projet
+resource "google_project_service_identity" "iap_sa" {
+  provider = google-beta
+  project  = var.project_id
+  service  = "iap.googleapis.com"
+}
+
+# Autorise le Service Agent IAP à invoquer le service Cloud Run (Requis pour l'intégration IAP + Cloud Run)
+resource "google_cloud_run_v2_service_iam_member" "iap_service_invoker" {
+  project  = google_cloud_run_v2_service.mcp_service.project
+  location = google_cloud_run_v2_service.mcp_service.location
+  name     = google_cloud_run_v2_service.mcp_service.name
+  role     = "roles/run.invoker"
+  member   = google_project_service_identity.iap_sa.member
+}
+
 
 # ─── NEG Serverless ──────────────────────────────────────────────────────────
 
