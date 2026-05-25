@@ -31,7 +31,11 @@ PG_PORT = int(os.getenv("PG_PORT", "5432"))
 PG_DATABASE = os.getenv("PG_DATABASE", "claude_memory")
 PG_USER = os.getenv("PG_USER", "claude")
 PG_PASSWORD = os.getenv("PG_PASSWORD")
-if not PG_PASSWORD:
+
+USE_IAM_AUTH = os.getenv("USE_IAM_AUTH", "false").lower() == "true"
+ALLOYDB_INSTANCE_URI = os.getenv("ALLOYDB_INSTANCE_URI")
+
+if not USE_IAM_AUTH and not PG_PASSWORD:
     raise RuntimeError("PG_PASSWORD environment variable is required. Set it in .env file.")
 
 # Security: Validate OLLAMA_HOST to prevent SSRF
@@ -111,7 +115,7 @@ async def verify_api_key(
     if request.url.path == "/":
         return
 
-    if API_KEY:
+    if REQUIRE_AUTH and API_KEY:
         if not x_api_key:
             raise HTTPException(status_code=401, detail="API key required")
         # Constant-time comparison to prevent timing attacks
@@ -120,6 +124,7 @@ async def verify_api_key(
             raise HTTPException(status_code=401, detail="Invalid API key")
 
 pool = None
+connector = None
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -167,17 +172,47 @@ async def _init_connection(conn):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Gestion du cycle de vie de l'application"""
-    global pool
-    pool = await asyncpg.create_pool(
-        host=PG_HOST, port=PG_PORT, database=PG_DATABASE,
-        user=PG_USER, password=PG_PASSWORD,
-        min_size=2, max_size=10, command_timeout=30,
-        init=_init_connection,
-    )
-    logger.info(f"Connected to PostgreSQL: {PG_DATABASE}")
+    global pool, connector
+    if USE_IAM_AUTH and ALLOYDB_INSTANCE_URI:
+        logger.info(f"Connecting to AlloyDB via IAM Auth: {ALLOYDB_INSTANCE_URI}")
+        from google.cloud.alloydb.connector import AsyncConnector, IPTypes
+        connector = AsyncConnector()
+        
+        async def getconn():
+            return await connector.connect(
+                ALLOYDB_INSTANCE_URI,
+                "asyncpg",
+                user=PG_USER,
+                db=PG_DATABASE,
+                enable_iam_auth=True,
+                ip_type=IPTypes.PRIVATE
+            )
+            
+        pool = await asyncpg.create_pool(
+            connect=getconn,
+            min_size=2,
+            max_size=10,
+            command_timeout=30,
+            init=_init_connection,
+        )
+    else:
+        logger.info(f"Connecting to PostgreSQL: {PG_DATABASE} (password auth)")
+        pool = await asyncpg.create_pool(
+            host=PG_HOST, port=PG_PORT, database=PG_DATABASE,
+            user=PG_USER, password=PG_PASSWORD,
+            min_size=2, max_size=10, command_timeout=30,
+            init=_init_connection,
+        )
+        
+    logger.info(f"Database connection pool initialized")
     yield
-    await pool.close()
-    logger.info("Database connection closed")
+    if pool is not None:
+        await pool.close()
+        pool = None
+    if connector is not None:
+        await connector.close()
+        connector = None
+    logger.info("Database connection pool closed")
 
 
 app = FastAPI(
@@ -221,6 +256,28 @@ app.add_middleware(
 )
 
 
+def get_version() -> str:
+    """Read version from VERSION file, falling back to '1.0.0' if not present."""
+    try:
+        # Check if the VERSION file exists in the current directory or parent directory
+        version_path = os.path.join(os.path.dirname(__file__), "..", "VERSION")
+        if not os.path.exists(version_path):
+            version_path = os.path.join(os.path.dirname(__file__), "VERSION")
+        if not os.path.exists(version_path):
+            version_path = "VERSION"
+            
+        with open(version_path, "r") as f:
+            return f.read().strip()
+    except Exception:
+        return "1.0.0"
+
+
+@app.get("/api/version")
+async def get_app_version():
+    """Obtenir la version actuelle du plugin"""
+    return {"version": get_version()}
+
+
 @app.get("/api/stats")
 async def get_stats(request: Request, _: None = Depends(verify_api_key)):
     """Statistiques globales des mémoires"""
@@ -245,6 +302,7 @@ async def get_stats(request: Request, _: None = Depends(verify_api_key)):
         )
 
     return {
+        "version": get_version(),
         "total_memories": total,
         "total_prompts": total_prompts,
         "recent_week": recent,
@@ -295,6 +353,41 @@ async def get_memories(
     }
 
 
+EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "ollama").lower()
+_vertex_model = None
+
+def get_embedding_vertex(text: str) -> list[float]:
+    """Générer un embedding via Vertex AI (Google Cloud)"""
+    global _vertex_model
+    if _vertex_model is None:
+        import vertexai
+        from vertexai.language_models import TextEmbeddingModel
+        project = os.getenv("GCP_PROJECT")
+        location = os.getenv("GCP_REGION", "europe-west9")
+        # Initialize Vertex AI with ambient credentials in GCP environment
+        vertexai.init(project=project, location=location)
+        _vertex_model = TextEmbeddingModel.from_pretrained("text-embedding-004")
+    
+    # Request embeddings with 768 dimensions (text-embedding-004 default)
+    embeddings = _vertex_model.get_embeddings([text])
+    return embeddings[0].values
+
+async def get_embedding(text: str) -> list[float]:
+    """Générer un embedding via Ollama local ou Vertex AI"""
+    if EMBEDDING_PROVIDER == "vertexai":
+        import asyncio
+        return await asyncio.to_thread(get_embedding_vertex, text)
+    
+    # Fallback to local Ollama embedding
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.post(
+            f"{OLLAMA_HOST}/api/embeddings",
+            json={"model": EMBEDDING_MODEL, "prompt": text}
+        )
+        response.raise_for_status()
+        return response.json()["embedding"]
+
+
 @app.get("/api/search")
 async def search_memories(
     request: Request,
@@ -304,13 +397,7 @@ async def search_memories(
 ):
     """Recherche vectorielle dans les mémoires"""
     # Générer l'embedding de la requête
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.post(
-            f"{OLLAMA_HOST}/api/embeddings",
-            json={"model": EMBEDDING_MODEL, "prompt": q}
-        )
-        response.raise_for_status()
-        embedding = response.json()["embedding"]
+    embedding = await get_embedding(q)
 
     embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
 
