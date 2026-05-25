@@ -272,6 +272,26 @@ def get_version() -> str:
         return "1.0.0"
 
 
+@app.get("/health")
+async def health():
+    """Liveness probe - Returns 200 if the server is running"""
+    return {"status": "healthy"}
+
+
+@app.get("/ready")
+async def ready():
+    """Readiness probe - Checks if the database pool is initialized and reachable"""
+    if pool is None:
+        raise HTTPException(status_code=503, detail="Database pool not initialized")
+    try:
+        async with pool.acquire() as conn:
+            await conn.execute("SELECT 1")
+        return {"status": "ready"}
+    except Exception as e:
+        logger.error(f"Readiness check failed: {e}")
+        raise HTTPException(status_code=503, detail=f"Database unreachable: {str(e)}")
+
+
 @app.get("/api/version")
 async def get_app_version():
     """Obtenir la version actuelle du plugin"""
@@ -592,7 +612,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     </div>
 
     <script>
-        const API = '';
+        const API = window.location.pathname !== '/' && !window.location.pathname.startsWith('/api')
+            ? window.location.pathname.split('/').slice(0, 2).join('/')
+            : '';
         const API_KEY = '__API_KEY__';
         const _origFetch = window.fetch.bind(window);
         window.fetch = function(input, init) {
