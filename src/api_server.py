@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """API Server pour MCP-Claude-mem-local - Interface dynamique temps réel"""
 
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 import hashlib
 import logging
-import os
 import secrets
 from contextlib import asynccontextmanager
 from functools import wraps
@@ -13,6 +16,7 @@ import asyncpg
 import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, Query, Request, HTTPException, Depends, Header
+from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -481,6 +485,42 @@ async def get_prompts(
         ],
         "count": len(rows)
     }
+
+
+class ToolCallRequest(BaseModel):
+    name: str
+    arguments: dict = {}
+
+
+@app.get("/mcp/tools")
+async def get_mcp_tools(_: None = Depends(verify_api_key)):
+    """Liste des outils MCP disponibles"""
+    try:
+        from src.server import mcp
+        tools = await mcp.list_tools()
+        return [{"name": t.name, "description": t.description, "inputSchema": t.inputSchema} for t in tools]
+    except Exception as e:
+        logger.exception("Failed to list MCP tools")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/mcp/call")
+async def execute_mcp_tool(request: ToolCallRequest, _: None = Depends(verify_api_key)):
+    """Invocation d'un outil MCP"""
+    try:
+        from src.server import mcp
+        res = await mcp.call_tool(request.name, request.arguments)
+        
+        # FastMCP call_tool returns a tuple (result_list, extra_dict) in this version
+        if isinstance(res, tuple):
+            result_list = res[0]
+        else:
+            result_list = res
+            
+        return {"result": [r.model_dump() for r in result_list]}
+    except Exception as e:
+        logger.exception(f"MCP tool call failed: {request.name}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/", response_class=HTMLResponse)
