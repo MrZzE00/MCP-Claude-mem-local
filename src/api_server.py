@@ -526,7 +526,14 @@ async def execute_mcp_tool(request: ToolCallRequest, _: None = Depends(verify_ap
 @app.get("/", response_class=HTMLResponse)
 async def serve_viewer():
     """Sert l'interface web dynamique"""
-    return HTML_TEMPLATE.replace("__API_KEY__", API_KEY or "")
+    db_info = "AlloyDB" if (USE_IAM_AUTH and ALLOYDB_INSTANCE_URI) else "PostgreSQL + pgvector"
+    ai_info = "Gemini" if EMBEDDING_PROVIDER == "vertexai" else "Ollama"
+    status_text = f"Connecté — {db_info} + {ai_info}"
+    
+    html = HTML_TEMPLATE.replace("__API_KEY__", API_KEY or "")
+    html = html.replace("Connecté — PostgreSQL + pgvector + Ollama", status_text)
+    return html
+
 
 
 HTML_TEMPLATE = """<!DOCTYPE html>
