@@ -12,8 +12,12 @@ Toute requête non authentifiée ou dépourvue d'un token valide est rejetée.
 Pour communiquer avec l'API MCP depuis votre machine locale (via votre IDE) :
 1. L'IDE lance la CLI locale `gcp/cli.py` en tâche de fond via l'interface standard **Stdio**.
 2. La CLI `gcp/cli.py` récupère l'audience IAP de votre projet depuis GCP Secret Manager (secret `google-secret-id`).
-3. Elle génère un **OIDC Identity Token Google** (via `gcloud auth print-identity-token`) et le met en cache localement pendant 50 minutes.
-4. La CLI sert de **Proxy Stdio-to-HTTP** : elle écoute les messages JSON-RPC de votre IDE sur l'entrée standard (`stdin`), y injecte le token IAP dans les en-têtes HTTP, appelle le serveur distant, puis retransmet les réponses sur la sortie standard (`stdout`).
+3. Elle génère un **OIDC Identity Token Google** :
+   - **Compte de Service Actif** : Génération directe du token pour l'audience IAP.
+   - **Compte Utilisateur (Compte Personnel `@zenika.com`)** : La CLI détecte automatiquement le compte utilisateur et utilise l'**usurpation de compte de service (impersonation)** de `sa-mcp-claude-memory-prd` avec l'argument `--include-email` pour obtenir un jeton valide IAP contenant l'adresse email.
+   - **Cache local** : Le jeton est mis en cache localement dans `~/.cache/mcp_iap_token_[projet].json` pendant 50 minutes, éliminant toute latence d'appel réseau lors des complétions ou des recherches.
+4. **SSL Intelligent** : La CLI détecte automatiquement les erreurs de certificats SSL locaux (très fréquents sur macOS avec les isolations Python) et bascule gracieusement sur un contexte SSL non vérifié si nécessaire pour garantir une connectivité fluide et continue.
+5. La CLI sert de **Proxy Stdio-to-HTTP** : elle écoute les messages JSON-RPC de votre IDE sur l'entrée standard (`stdin`), y injecte le token IAP dans les en-têtes HTTP, appelle le serveur distant, puis retransmet les réponses sur la sortie standard (`stdout`).
 
 ---
 

@@ -53,10 +53,35 @@ def get_iap_token(project_id: str) -> str:
             ["gcloud", "auth", "print-identity-token", f"--audiences={audience}"],
             capture_output=True, text=True, timeout=15
         )
-        if res.returncode != 0 or not res.stdout.strip():
-            print(f"[-] [Error] Failed to generate identity token: {res.stderr.strip()}", file=sys.stderr)
+        
+        token = ""
+        if res.returncode != 0:
+            err_output = res.stderr.strip()
+            if "Invalid account type" in err_output or "Requires valid service account" in err_output:
+                env_name = "prd" if "prod" in project_id else "dev"
+                service_account = f"sa-mcp-claude-memory-{env_name}@{project_id}.iam.gserviceaccount.com"
+                print(f"[*] User account detected. Attempting to impersonate service account: {service_account}...", file=sys.stderr)
+                res_imp = subprocess.run(
+                    ["gcloud", "auth", "print-identity-token",
+                     f"--impersonate-service-account={service_account}",
+                     f"--audiences={audience}",
+                     "--include-email"],
+                    capture_output=True, text=True, timeout=15
+                )
+                if res_imp.returncode == 0 and res_imp.stdout.strip():
+                    token = res_imp.stdout.strip().splitlines()[-1]
+                else:
+                    print(f"[-] [Error] Failed to generate impersonated token: {res_imp.stderr.strip()}", file=sys.stderr)
+                    return ""
+            else:
+                print(f"[-] [Error] Failed to generate identity token: {err_output}", file=sys.stderr)
+                return ""
+        else:
+            token = res.stdout.strip()
+
+        if not token:
+            print("[-] [Error] Token output is empty", file=sys.stderr)
             return ""
-        token = res.stdout.strip()
 
         # Save token to cache
         cache_path.parent.mkdir(parents=True, exist_ok=True)
@@ -96,6 +121,20 @@ def make_http_request(url: str, path: str, method: str = "GET", body: dict = Non
         err_msg = e.read().decode("utf-8")
         print(f"[-] [HTTP Error {e.code}] on {path}: {err_msg}", file=sys.stderr)
         raise
+    except urllib.error.URLError as e:
+        if "certificate verify failed" in str(e):
+            print("[!] [SSL Warning] Local SSL certificate verification failed. Retrying with unverified SSL context...", file=sys.stderr)
+            import ssl
+            context = ssl._create_unverified_context()
+            try:
+                with urllib.request.urlopen(req, timeout=30, context=context) as resp:
+                    return json.loads(resp.read().decode("utf-8"))
+            except Exception as retry_err:
+                print(f"[-] [Connection Error] Failed to reach remote backend even with unverified SSL: {retry_err}", file=sys.stderr)
+                raise
+        else:
+            print(f"[-] [Connection Error] Failed to reach remote backend: {e}", file=sys.stderr)
+            raise
     except Exception as e:
         print(f"[-] [Connection Error] Failed to reach remote backend: {e}", file=sys.stderr)
         raise
