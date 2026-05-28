@@ -16,8 +16,14 @@ PG_PORT = int(os.getenv("PG_PORT", "5432"))
 PG_DATABASE = os.getenv("PG_DATABASE", "claude_memory")
 PG_USER = os.getenv("PG_USER", "claude")
 PG_PASSWORD = os.getenv("PG_PASSWORD")
-if not PG_PASSWORD:
+
+USE_IAM_AUTH = os.getenv("USE_IAM_AUTH", "false").lower() == "true"
+ALLOYDB_INSTANCE_URI = os.getenv("ALLOYDB_INSTANCE_URI")
+EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "ollama").lower()
+
+if not USE_IAM_AUTH and not PG_PASSWORD:
     raise RuntimeError("PG_PASSWORD environment variable is required. Set it in .env file.")
+
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -386,10 +392,23 @@ HTML_TEMPLATE = """
 """
 
 async def generate_html():
-    conn = await asyncpg.connect(
-        host=PG_HOST, port=PG_PORT, database=PG_DATABASE,
-        user=PG_USER, password=PG_PASSWORD
-    )
+    connector = None
+    if USE_IAM_AUTH and ALLOYDB_INSTANCE_URI:
+        from google.cloud.alloydb.connector import AsyncConnector, IPTypes
+        connector = AsyncConnector()
+        conn = await connector.connect(
+            ALLOYDB_INSTANCE_URI,
+            "asyncpg",
+            user=PG_USER,
+            db=PG_DATABASE,
+            enable_iam_auth=True,
+            ip_type=IPTypes.PRIVATE
+        )
+    else:
+        conn = await asyncpg.connect(
+            host=PG_HOST, port=PG_PORT, database=PG_DATABASE,
+            user=PG_USER, password=PG_PASSWORD
+        )
     
     # Stats memories
     total_memories = await conn.fetchval("SELECT COUNT(*) FROM memories")
@@ -479,8 +498,14 @@ async def generate_html():
         """
     
     await conn.close()
+    if connector is not None:
+        await connector.close()
     
-    return HTML_TEMPLATE.format(
+    db_info = "AlloyDB" if (USE_IAM_AUTH and ALLOYDB_INSTANCE_URI) else "PostgreSQL + pgvector"
+    ai_info = "Gemini" if EMBEDDING_PROVIDER == "vertexai" else "Ollama"
+    status_text = f"{db_info} + {ai_info}"
+    
+    rendered_html = HTML_TEMPLATE.format(
         total_memories=total_memories,
         total_prompts=total_prompts,
         stats_html=stats_html,
@@ -489,6 +514,7 @@ async def generate_html():
         memories_html=memories_html,
         prompts_html=prompts_html
     )
+    return rendered_html.replace("PostgreSQL + pgvector + Ollama", status_text)
 
 async def main():
     html = await generate_html()
