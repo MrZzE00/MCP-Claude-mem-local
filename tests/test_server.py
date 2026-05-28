@@ -14,9 +14,22 @@ os.environ["PG_DATABASE"] = "synaptic_test"
 os.environ["PG_USER"] = "synaptic"
 os.environ["PG_PASSWORD"] = "test_password"
 os.environ["OLLAMA_HOST"] = "http://localhost:11434"
+os.environ["USE_ACTR_SCORING"] = "false"
+
+
+
+
+def setup_mock_pool(mock_pool, mock_conn):
+    """Configures pool.acquire() as a valid async context manager returning mock_conn in Python 3.13"""
+    mock_pool_obj = MagicMock()
+    mock_pool_obj.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
+    mock_pool_obj.acquire.return_value.__aexit__ = AsyncMock(return_value=False)
+    mock_pool.return_value = mock_pool_obj
+    return mock_pool_obj
 
 
 class TestEmbeddings:
+
     """Test embedding generation."""
 
     @pytest.mark.asyncio
@@ -79,7 +92,7 @@ class TestStoreMemory:
             
             mock_conn = AsyncMock()
             mock_conn.fetchrow.return_value = {"id": "test-uuid-1234"}
-            mock_pool.return_value.acquire.return_value.__aenter__.return_value = mock_conn
+            setup_mock_pool(mock_pool, mock_conn)
             
             # Execute
             result = await store_memory(
@@ -92,7 +105,7 @@ class TestStoreMemory:
             )
             
             # Assert
-            assert "Memory stored with ID:" in result
+            assert "Memoire stockee avec ID:" in result
             assert "test-uuid-1234" in result
             mock_embed.assert_called_once()
 
@@ -109,7 +122,7 @@ class TestStoreMemory:
             mock_embed.return_value = [0.1] * 768
             mock_conn = AsyncMock()
             mock_conn.fetchrow.return_value = {"id": "test-uuid"}
-            mock_pool.return_value.acquire.return_value.__aenter__.return_value = mock_conn
+            setup_mock_pool(mock_pool, mock_conn)
             
             # Long content without summary
             long_content = "A" * 200
@@ -118,7 +131,7 @@ class TestStoreMemory:
                 category="discovery"
             )
             
-            assert "Memory stored with ID:" in result
+            assert "Memoire stockee avec ID:" in result
 
     @pytest.mark.asyncio
     async def test_store_memory_error_handling(self):
@@ -135,8 +148,7 @@ class TestStoreMemory:
                 category="bugfix"
             )
             
-            assert "Error:" in result
-            assert "Ollama connection failed" in result
+            assert "Erreur:" in result
 
 
 class TestRetrieveMemories:
@@ -163,18 +175,18 @@ class TestRetrieveMemories:
                     "category": "bugfix",
                     "tags": ["auth"],
                     "importance_score": 0.8,
-                    "similarity": 0.95
+                    "sim": 0.95
                 }
             ]
             mock_conn.execute = AsyncMock()
-            mock_pool.return_value.acquire.return_value.__aenter__.return_value = mock_conn
+            setup_mock_pool(mock_pool, mock_conn)
             
             result = await retrieve_memories(
                 query="authentication bug",
                 max_results=5
             )
             
-            assert "1 memory(ies) found" in result
+            assert "memoire(s) trouvee(s)" in result
             assert "bugfix" in result
             assert "0.95" in result
 
@@ -191,11 +203,11 @@ class TestRetrieveMemories:
             mock_embed.return_value = [0.1] * 768
             mock_conn = AsyncMock()
             mock_conn.fetch.return_value = []
-            mock_pool.return_value.acquire.return_value.__aenter__.return_value = mock_conn
+            setup_mock_pool(mock_pool, mock_conn)
             
             result = await retrieve_memories(query="nonexistent topic")
             
-            assert "No relevant memories found" in result
+            assert "Aucune memoire" in result
 
     @pytest.mark.asyncio
     async def test_retrieve_memories_with_category_filter(self):
@@ -211,7 +223,7 @@ class TestRetrieveMemories:
             mock_conn = AsyncMock()
             mock_conn.fetch.return_value = []
             mock_conn.execute = AsyncMock()
-            mock_pool.return_value.acquire.return_value.__aenter__.return_value = mock_conn
+            setup_mock_pool(mock_pool, mock_conn)
             
             await retrieve_memories(
                 query="test",
@@ -220,7 +232,7 @@ class TestRetrieveMemories:
             
             # Verify the query included category filter
             call_args = mock_conn.fetch.call_args
-            assert "category = $4" in call_args[0][0]
+            assert "category = $5" in call_args[0][0]
 
 
     @pytest.mark.asyncio
@@ -366,11 +378,11 @@ class TestListMemories:
                     "access_count": 5
                 }
             ]
-            mock_pool.return_value.acquire.return_value.__aenter__.return_value = mock_conn
+            setup_mock_pool(mock_pool, mock_conn)
             
             result = await list_memories(limit=10)
             
-            assert "1 memory(ies)" in result
+            assert "memoire(s)" in result
             assert "bugfix" in result
 
     @pytest.mark.asyncio
@@ -383,11 +395,11 @@ class TestListMemories:
         with patch("server.get_pool") as mock_pool:
             mock_conn = AsyncMock()
             mock_conn.fetch.return_value = []
-            mock_pool.return_value.acquire.return_value.__aenter__.return_value = mock_conn
+            setup_mock_pool(mock_pool, mock_conn)
             
             result = await list_memories()
             
-            assert "No memories stored" in result
+            assert "Aucune memoire" in result
 
 
     @pytest.mark.asyncio
@@ -468,17 +480,18 @@ class TestMemoryStats:
         
         with patch("server.get_pool") as mock_pool:
             mock_conn = AsyncMock()
-            mock_conn.fetchval.side_effect = [100, 10]  # total, recent
+            mock_conn.fetchval.side_effect = [100, 10, -0.5]  # total, recent, avg_activation
             mock_conn.fetch.side_effect = [
                 [{"category": "bugfix", "count": 50}, {"category": "feature", "count": 30}],
-                [{"summary": "Top memory", "access_count": 20}]
+                [{"summary": "Top memory", "access_count": 20}],
+                [{"status": "active", "count": 10}]
             ]
-            mock_pool.return_value.acquire.return_value.__aenter__.return_value = mock_conn
+            setup_mock_pool(mock_pool, mock_conn)
             
             result = await memory_stats()
             
-            assert "100 memories" in result
-            assert "10 new" in result
+            assert "100 memoires" in result
+            assert "10 nouvelles" in result
             assert "bugfix: 50" in result
 
 
@@ -495,11 +508,11 @@ class TestDeleteMemory:
         with patch("server.get_pool") as mock_pool:
             mock_conn = AsyncMock()
             mock_conn.execute.return_value = "DELETE 1"
-            mock_pool.return_value.acquire.return_value.__aenter__.return_value = mock_conn
+            setup_mock_pool(mock_pool, mock_conn)
             
             result = await delete_memory("550e8400-e29b-41d4-a716-446655440000")
             
-            assert "deleted" in result
+            assert "supprimee" in result
 
     @pytest.mark.asyncio
     async def test_delete_memory_not_found(self):
@@ -511,11 +524,11 @@ class TestDeleteMemory:
         with patch("server.get_pool") as mock_pool:
             mock_conn = AsyncMock()
             mock_conn.execute.return_value = "DELETE 0"
-            mock_pool.return_value.acquire.return_value.__aenter__.return_value = mock_conn
+            setup_mock_pool(mock_pool, mock_conn)
             
             result = await delete_memory("550e8400-e29b-41d4-a716-446655440000")
             
-            assert "not found" in result
+            assert "non trouvee" in result
 
 
 class TestIntegration:

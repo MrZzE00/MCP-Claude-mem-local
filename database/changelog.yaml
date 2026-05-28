@@ -1,0 +1,11 @@
+databaseChangeLog:
+  - changeSet:
+      id: 1-initialize-memory-schema
+      author: antigravity
+      comment: Initial schema setup for MCP-Claude-mem-local with pgvector and trigrams
+      changes:
+        - sqlFile:
+            path: db-init.sql
+            relativeToChangelogFile: true
+            splitStatements: false
+            stripComments: false
