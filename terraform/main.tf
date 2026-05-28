@@ -47,9 +47,9 @@ locals {
   # ex: europe-west1-docker.pkg.dev/proj/reg/mcp-claude-memory:v1.0.6
   #  → europe-west1-docker.pkg.dev/proj/reg/mcp-claude-memory-db-migrations:v1.0.6
   image_db_migrations_resolved = var.image_db_migrations != "" ? (
-    "${var.image_db_migrations}:${var.image_version}"
+    "${var.image_db_migrations}:${var.image_db_migrations_version}"
   ) : (
-    "${var.image_uri}-db-migrations:${var.image_version}"
+    "${var.image_uri}-db-migrations:${var.image_db_migrations_version}"
   )
 }
 
@@ -85,12 +85,14 @@ resource "google_secret_manager_secret_iam_member" "iap_client_secret_accessor" 
 data "google_secret_manager_secret_version" "iap_client_id" {
   count   = var.enable_iap && var.iap_oauth_client_id != "" ? 1 : 0
   secret  = var.iap_oauth_client_id
+  version = var.iap_oauth_client_version
   project = var.project_id
 }
 
 data "google_secret_manager_secret_version" "iap_client_secret" {
   count   = var.enable_iap && var.iap_oauth_client_secret != "" ? 1 : 0
   secret  = var.iap_oauth_client_secret
+  version = var.iap_oauth_client_version
   project = var.project_id
 }
 

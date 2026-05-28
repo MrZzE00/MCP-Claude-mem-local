@@ -27,6 +27,12 @@ variable "image_version" {
   description = "Version semver de l'image Docker (ex: v1.0.6) — injectée par manage_env.py"
 }
 
+variable "image_db_migrations_version" {
+  type        = string
+  default     = "latest"
+  description = "Version semver de l'image Docker de migration (ex: v1.0.6) — injectée par manage_env.py"
+}
+
 # image_uri = base URL de l'image Docker SANS le tag de version.
 # La plateforme injecte uniquement image_version ; le sous-projet connaît son propre registry.
 variable "image_uri" {
@@ -87,6 +93,12 @@ variable "iap_oauth_client_secret" {
   type        = string
   default     = ""
   description = "Nom du secret Secret Manager pour l'IAP OAuth Client Secret (ex: iap-oauth-client-secret-dev)"
+}
+
+variable "iap_oauth_client_version" {
+  type        = string
+  default     = "latest"
+  description = "Version de secret active pour l'IAP OAuth Client ID/Secret (ex: 2) — injectée par manage_env.py"
 }
 
 # ============================================================

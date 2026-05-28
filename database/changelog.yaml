@@ -9,3 +9,5 @@ databaseChangeLog:
             relativeToChangelogFile: true
             splitStatements: false
             stripComments: false
+
+# Decoupled versioning test comment

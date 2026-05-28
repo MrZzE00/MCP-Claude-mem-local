@@ -3,6 +3,6 @@
 terraform {
   backend "gcs" {
     bucket = "z-gcp-summit-tf-state"
-    prefix = "terraform/state/prd/mcp-claude-memory"
+    prefix = "terraform/state/dev/mcp-claude-memory"
   }
 }
