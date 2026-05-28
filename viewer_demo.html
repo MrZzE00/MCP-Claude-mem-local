@@ -1,31 +1,4 @@
-#!/usr/bin/env python3
-"""Interface web pour visualiser les mémoires"""
 
-import asyncio
-import html
-import os
-from datetime import datetime
-
-import asyncpg
-from dotenv import load_dotenv
-
-load_dotenv()
-
-PG_HOST = os.getenv("PG_HOST", "localhost")
-PG_PORT = int(os.getenv("PG_PORT", "5432"))
-PG_DATABASE = os.getenv("PG_DATABASE", "claude_memory")
-PG_USER = os.getenv("PG_USER", "claude")
-PG_PASSWORD = os.getenv("PG_PASSWORD")
-
-USE_IAM_AUTH = os.getenv("USE_IAM_AUTH", "false").lower() == "true"
-ALLOYDB_INSTANCE_URI = os.getenv("ALLOYDB_INSTANCE_URI")
-EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "ollama").lower()
-
-if not USE_IAM_AUTH and not PG_PASSWORD:
-    raise RuntimeError("PG_PASSWORD environment variable is required. Set it in .env file.")
-
-
-HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -501,17 +474,20 @@ HTML_TEMPLATE = """
         
         <div class="status-bar">
             <div class="status-dot"></div>
-            <span>Système connecté — PostgreSQL + pgvector + Ollama</span>
+            <span>Système connecté — AlloyDB + Gemini</span>
         </div>
         
         <div class="tabs">
-            <button class="tab-btn active" data-tab="memories">📚 Mémoires ({total_memories})</button>
-            <button class="tab-btn" data-tab="prompts">💬 Prompts ({total_prompts})</button>
+            <button class="tab-btn active" data-tab="memories">📚 Mémoires (142)</button>
+            <button class="tab-btn" data-tab="prompts">💬 Prompts (356)</button>
         </div>
         
         <div id="memories-tab" class="tab-content active">
             <div class="stats">
-                {stats_html}
+                
+    <div class="stat-card"><div class="stat-value">142</div><div class="stat-label">Mémoires</div></div>
+    <div class="stat-card"><div class="stat-value">356</div><div class="stat-label">Prompts</div></div>
+<div class="stat-card"><div class="stat-value">48</div><div class="stat-label">feature</div></div><div class="stat-card"><div class="stat-value">29</div><div class="stat-label">bugfix</div></div><div class="stat-card"><div class="stat-value">22</div><div class="stat-label">decision</div></div><div class="stat-card"><div class="stat-value">18</div><div class="stat-label">refactor</div></div><div class="stat-card"><div class="stat-value">12</div><div class="stat-label">discovery</div></div><div class="stat-card"><div class="stat-value">8</div><div class="stat-label">learning</div></div>
             </div>
             
             <input type="text" class="search-box" placeholder="🔍 Rechercher dans les mémoires..." id="searchBox">
@@ -519,24 +495,114 @@ HTML_TEMPLATE = """
             <div class="filters" id="filters">
                 <span class="filter-label">Type:</span>
                 <button class="filter-btn active" data-filter="all">Toutes</button>
-                {filter_buttons}
+                <button class="filter-btn" data-filter="feature">feature (48)</button><button class="filter-btn" data-filter="bugfix">bugfix (29)</button><button class="filter-btn" data-filter="decision">decision (22)</button><button class="filter-btn" data-filter="refactor">refactor (18)</button><button class="filter-btn" data-filter="discovery">discovery (12)</button><button class="filter-btn" data-filter="learning">learning (8)</button><button class="filter-btn" data-filter="pattern">pattern (5)</button>
             </div>
             
             <div class="filters" id="projectFilters">
                 <span class="filter-label">Projet:</span>
                 <button class="project-btn active" data-project="all">Tous</button>
-                {project_buttons}
+                <button class="project-btn" data-project="MCP-Claude-mem-local">MCP-Claude-mem-local (64)</button><button class="project-btn" data-project="test-open-code">test-open-code (42)</button><button class="project-btn" data-project="infra-ops">infra-ops (18)</button>
             </div>
             
             <div class="memories-grid" id="memoriesGrid">
-                {memories_html}
+                
+    <div class="memory-card" data-type="feature" data-project="MCP-Claude-mem-local">
+        <div class="memory-header">
+            <span class="memory-type type-feature">feature</span>
+            <span class="memory-importance">★★★★☆</span>
+        </div>
+        <div class="memory-summary">Ajout du support AlloyDB pour le stockage des mémoires</div>
+        <div class="memory-content">Déploiement et intégration du connecteur AlloyDB de Google Cloud avec authentification IAM. Cette fonctionnalité permet de stocker les embeddings vectoriels générés par Gemini de manière sécurisée et performante sans mot de passe en dur, en utilisant le rôle IAM Cloud Run.</div>
+        <button class="expand-btn">Voir plus ▼</button>
+        <div class="memory-tags"><span class="tag">alloydb</span><span class="tag">gcp</span><span class="tag">iam</span><span class="tag">embeddings</span></div>
+        <div class="memory-meta">
+            <span><span class="project-badge">MCP-Claude-mem-local</span></span>
+            <span>Accès: 24 | 28/05/2026 15:30</span>
+        </div>
+    </div>
+    
+    <div class="memory-card" data-type="bugfix" data-project="MCP-Claude-mem-local">
+        <div class="memory-header">
+            <span class="memory-type type-bugfix">bugfix</span>
+            <span class="memory-importance">★★★★☆</span>
+        </div>
+        <div class="memory-summary">Correction du KeyError dans le visualiseur HTML_TEMPLATE</div>
+        <div class="memory-content">Résolution d&#x27;un crash critique survenant lors de la génération de viewer.html. L&#x27;utilisation originelle de .format() sur HTML_TEMPLATE levait une KeyError à cause des accolades simples utilisées dans les sélecteurs CSS. Remplacement par un chaînage robuste de .replace() qui préserve la syntaxe CSS standard.</div>
+        <button class="expand-btn">Voir plus ▼</button>
+        <div class="memory-tags"><span class="tag">bugfix</span><span class="tag">css</span><span class="tag">rendering</span><span class="tag">python</span></div>
+        <div class="memory-meta">
+            <span><span class="project-badge">MCP-Claude-mem-local</span></span>
+            <span>Accès: 15 | 28/05/2026 15:15</span>
+        </div>
+    </div>
+    
+    <div class="memory-card" data-type="decision" data-project="test-open-code">
+        <div class="memory-header">
+            <span class="memory-type type-decision">decision</span>
+            <span class="memory-importance">★★★☆☆</span>
+        </div>
+        <div class="memory-summary">Adoption du Thème Clair Zenika pour l&#x27;interface de visualisation</div>
+        <div class="memory-content">Sélection et implémentation de l&#x27;Option B (Thème Clair Zenika) suite aux retours de l&#x27;utilisateur. Le style graphique reprend les polices modernisées &#x27;Outfit&#x27; et &#x27;Inter&#x27; avec des bordures et effets au survol de couleur rouge Zenika (#E31937) sur un fond dégradé gris/blanc très épuré.</div>
+        <button class="expand-btn">Voir plus ▼</button>
+        <div class="memory-tags"><span class="tag">design</span><span class="tag">css-variables</span><span class="tag">zenika</span></div>
+        <div class="memory-meta">
+            <span><span class="project-badge">test-open-code</span></span>
+            <span>Accès: 7 | 28/05/2026 14:45</span>
+        </div>
+    </div>
+    
+    <div class="memory-card" data-type="refactor" data-project="MCP-Claude-mem-local">
+        <div class="memory-header">
+            <span class="memory-type type-refactor">refactor</span>
+            <span class="memory-importance">★★★☆☆</span>
+        </div>
+        <div class="memory-summary">Optimisation des requêtes hybrides PostgreSQL</div>
+        <div class="memory-content">Refactoring de la méthode de recherche hybride combinant recherche plein texte (FTS) et recherche vectorielle pgvector. Les coefficients ACTR ont été ajustés pour accorder une pondération équilibrée à la récence d&#x27;accès et au score de similarité cosinus.</div>
+        <button class="expand-btn">Voir plus ▼</button>
+        <div class="memory-tags"><span class="tag">refactor</span><span class="tag">postgres</span><span class="tag">pgvector</span><span class="tag">actr</span></div>
+        <div class="memory-meta">
+            <span><span class="project-badge">MCP-Claude-mem-local</span></span>
+            <span>Accès: 11 | 27/05/2026 18:22</span>
+        </div>
+    </div>
+    
+    <div class="memory-card" data-type="discovery" data-project="infra-ops">
+        <div class="memory-header">
+            <span class="memory-type type-discovery">discovery</span>
+            <span class="memory-importance">★★☆☆☆</span>
+        </div>
+        <div class="memory-summary">Comportement des requêtes réseau lors du déploiement Terraform</div>
+        <div class="memory-content">Découverte de latences inattendues lors de l&#x27;appel au point d&#x27;accès Ollama distant sous certaines topologies VPC GCP. Résolu en mettant en place un miroir local du service ou en augmentant le timeout de gunicorn.</div>
+        <button class="expand-btn">Voir plus ▼</button>
+        <div class="memory-tags"><span class="tag">terraform</span><span class="tag">vpc</span><span class="tag">gcp</span><span class="tag">ollama</span></div>
+        <div class="memory-meta">
+            <span><span class="project-badge">infra-ops</span></span>
+            <span>Accès: 4 | 26/05/2026 10:57</span>
+        </div>
+    </div>
+    
             </div>
         </div>
         
         <div id="prompts-tab" class="tab-content">
             <input type="text" class="search-box" placeholder="🔍 Rechercher dans les prompts..." id="searchPrompts">
             <div id="promptsList">
-                {prompts_html}
+                
+    <div class="prompt-card">
+        <div class="prompt-text">Mettre à jour la page aux couleurs de Zenika en analysant test-open-code/frontend et zenika.com.</div>
+        <div class="prompt-meta">#3 | 28/05/2026 15:34</div>
+    </div>
+    
+    <div class="prompt-card">
+        <div class="prompt-text">Comment configurer les permissions IAM AlloyDB pour le rôle Cloud Run sur GCP ?</div>
+        <div class="prompt-meta">#2 | 28/05/2026 13:12</div>
+    </div>
+    
+    <div class="prompt-card">
+        <div class="prompt-text">Lance les tests unitaires sur la recherche hybride avec pytest.</div>
+        <div class="prompt-meta">#1 | 27/05/2026 09:40</div>
+    </div>
+    
             </div>
         </div>
     </div>
@@ -609,144 +675,3 @@ HTML_TEMPLATE = """
     </script>
 </body>
 </html>
-"""
-
-async def generate_html():
-    connector = None
-    if USE_IAM_AUTH and ALLOYDB_INSTANCE_URI:
-        from google.cloud.alloydb.connector import AsyncConnector, IPTypes
-        connector = AsyncConnector()
-        conn = await connector.connect(
-            ALLOYDB_INSTANCE_URI,
-            "asyncpg",
-            user=PG_USER,
-            db=PG_DATABASE,
-            enable_iam_auth=True,
-            ip_type=IPTypes.PRIVATE
-        )
-    else:
-        conn = await asyncpg.connect(
-            host=PG_HOST, port=PG_PORT, database=PG_DATABASE,
-            user=PG_USER, password=PG_PASSWORD
-        )
-    
-    # Stats memories
-    total_memories = await conn.fetchval("SELECT COUNT(*) FROM memories")
-    by_category = await conn.fetch("""
-        SELECT category, COUNT(*) as count FROM memories GROUP BY category ORDER BY count DESC
-    """)
-    by_project = await conn.fetch("""
-        SELECT project_context, COUNT(*) as count FROM memories 
-        WHERE project_context IS NOT NULL 
-        GROUP BY project_context ORDER BY count DESC LIMIT 10
-    """)
-    
-    # Stats prompts
-    total_prompts = await conn.fetchval("SELECT COUNT(*) FROM user_prompts")
-    
-    stats_html = f"""
-        <div class="stat-card"><div class="stat-value">{total_memories}</div><div class="stat-label">Mémoires</div></div>
-        <div class="stat-card"><div class="stat-value">{total_prompts}</div><div class="stat-label">Prompts</div></div>
-    """
-    for row in by_category[:6]:
-        cat_safe = html.escape(str(row["category"]))
-        stats_html += f'<div class="stat-card"><div class="stat-value">{row["count"]}</div><div class="stat-label">{cat_safe}</div></div>'
-
-    # Filter buttons (escape to prevent XSS)
-    filter_buttons = "".join(
-        f'<button class="filter-btn" data-filter="{html.escape(str(row["category"]))}">{html.escape(str(row["category"]))} ({row["count"]})</button>'
-        for row in by_category
-    )
-
-    # Project buttons (escape to prevent XSS)
-    project_buttons = "".join(
-        f'<button class="project-btn" data-project="{html.escape(str(row["project_context"]))}">{html.escape(str(row["project_context"])[:20])} ({row["count"]})</button>'
-        for row in by_project if row["project_context"]
-    )
-    
-    # Memories
-    memories = await conn.fetch("""
-        SELECT id, content, summary, category, tags, project_context, importance_score, created_at, access_count
-        FROM memories ORDER BY created_at DESC LIMIT 500
-    """)
-    
-    memories_html = ""
-    for mem in memories:
-        # Escape all user-provided data to prevent XSS
-        tags_html = "".join(f'<span class="tag">{html.escape(str(tag))}</span>' for tag in (mem["tags"] or [])[:5])
-        project = html.escape(str(mem["project_context"] or ""))
-        project_badge = f'<span class="project-badge">{project[:20]}</span>' if project else ""
-        importance_stars = "★" * int((mem["importance_score"] or 0.5) * 5) + "☆" * (5 - int((mem["importance_score"] or 0.5) * 5))
-        category_safe = html.escape(str(mem["category"] or ""))
-
-        content_preview = html.escape((mem["content"] or "")[:500])
-        summary = html.escape((mem["summary"] or "")[:100])
-        created = mem["created_at"].strftime("%d/%m/%Y %H:%M") if mem["created_at"] else "N/A"
-
-        memories_html += f"""
-        <div class="memory-card" data-type="{category_safe}" data-project="{project}">
-            <div class="memory-header">
-                <span class="memory-type type-{category_safe}">{category_safe}</span>
-                <span class="memory-importance">{importance_stars}</span>
-            </div>
-            <div class="memory-summary">{summary}</div>
-            <div class="memory-content">{content_preview}</div>
-            <button class="expand-btn">Voir plus ▼</button>
-            <div class="memory-tags">{tags_html}</div>
-            <div class="memory-meta">
-                <span>{project_badge}</span>
-                <span>Accès: {mem["access_count"] or 0} | {created}</span>
-            </div>
-        </div>
-        """
-    
-    # Prompts
-    prompts = await conn.fetch("""
-        SELECT prompt_text, created_at, prompt_number, session_id
-        FROM user_prompts ORDER BY created_at DESC LIMIT 300
-    """)
-    
-    prompts_html = ""
-    for p in prompts:
-        text = html.escape(p["prompt_text"] or "")
-        created = p["created_at"].strftime("%d/%m/%Y %H:%M") if p["created_at"] else "N/A"
-        prompts_html += f"""
-        <div class="prompt-card">
-            <div class="prompt-text">{text}</div>
-            <div class="prompt-meta">#{p["prompt_number"]} | {created}</div>
-        </div>
-        """
-    
-    await conn.close()
-    if connector is not None:
-        await connector.close()
-    
-    db_info = "AlloyDB" if (USE_IAM_AUTH and ALLOYDB_INSTANCE_URI) else "PostgreSQL + pgvector"
-    ai_info = "Gemini" if EMBEDDING_PROVIDER == "vertexai" else "Ollama"
-    status_text = f"{db_info} + {ai_info}"
-    rendered_html = (
-        HTML_TEMPLATE
-        .replace("{total_memories}", str(total_memories))
-        .replace("{total_prompts}", str(total_prompts))
-        .replace("{stats_html}", stats_html)
-        .replace("{filter_buttons}", filter_buttons)
-        .replace("{project_buttons}", project_buttons)
-        .replace("{memories_html}", memories_html)
-        .replace("{prompts_html}", prompts_html)
-    )
-    return rendered_html.replace("PostgreSQL + pgvector + Ollama", status_text)
-
-async def main():
-    html = await generate_html()
-    
-    html_path = os.path.join(os.path.dirname(__file__), "..", "viewer.html")
-    with open(html_path, "w") as f:
-        f.write(html)
-    
-    print(f"✅ Interface générée: {os.path.abspath(html_path)}")
-    print(f"\n🌐 Pour voir l'interface:")
-    print(f"   cd ~/claude-memory-local && python -m http.server 8080")
-    print(f"   Puis ouvre http://localhost:8080/viewer.html")
-
-if __name__ == "__main__":
-    asyncio.run(main())

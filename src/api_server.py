@@ -42,11 +42,13 @@ ALLOYDB_INSTANCE_URI = os.getenv("ALLOYDB_INSTANCE_URI")
 if not USE_IAM_AUTH and not PG_PASSWORD:
     raise RuntimeError("PG_PASSWORD environment variable is required. Set it in .env file.")
 
-# Security: Validate OLLAMA_HOST to prevent SSRF
+EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "ollama").lower()
+
+# Security: Validate OLLAMA_HOST to prevent SSRF (skipped when using VertexAI)
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 _parsed_ollama = urlparse(OLLAMA_HOST)
 ALLOWED_OLLAMA_HOSTS = {"localhost", "127.0.0.1"}
-if _parsed_ollama.hostname not in ALLOWED_OLLAMA_HOSTS:
+if EMBEDDING_PROVIDER != "vertexai" and _parsed_ollama.hostname not in ALLOWED_OLLAMA_HOSTS:
     raise RuntimeError(f"OLLAMA_HOST must be localhost or 127.0.0.1 for security. Got: {_parsed_ollama.hostname}")
 
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
@@ -145,7 +147,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
             "script-src 'self' 'unsafe-inline'; "
-            "style-src 'self' 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+            "font-src 'self' https://fonts.gstatic.com; "
             "img-src 'self' data:; "
             "connect-src 'self'; "
             "frame-ancestors 'none';"
@@ -377,7 +380,6 @@ async def get_memories(
     }
 
 
-EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "ollama").lower()
 _vertex_model = None
 
 def get_embedding_vertex(text: str) -> list[float]:
