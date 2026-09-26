@@ -197,7 +197,7 @@ async def retrieve_memories(
         include_forgotten: Inclure les memoires oubliees (defaut: false)
 
     Returns:
-        Les memoires pertinentes formatees
+        Les memoires pertinentes formatees, ID inclus (utilisable avec delete_memory)
     """
     # Input validation
     max_results = max(1, min(100, max_results))
@@ -298,6 +298,7 @@ async def retrieve_memories(
                 project_info = f"\nProjet: {row['project_context']}"
             results.append(f"""
 ---
+`{row['id']}`
 **[{row['category']}]** (similarite: {row['sim']:.2f}, importance: {row['importance_score']:.1f}{activation_info}{rrf_info})
 {row['content']}
 Tags: {', '.join(row['tags']) if row['tags'] else 'aucun'}{project_info}
@@ -327,7 +328,7 @@ async def list_memories(
         project: Filtrer par projet (optionnel, ex: "project-m4")
 
     Returns:
-        Liste des memoires avec leurs metadonnees
+        Liste des memoires avec leurs metadonnees, ID inclus (utilisable avec delete_memory)
     """
     # Input validation
     limit = max(1, min(100, limit))
@@ -380,11 +381,14 @@ async def list_memories(
         for row in rows:
             project_info = f" | projet: {row['project_context']}" if row.get('project_context') else ""
             results.append(
-                f"- **{row['category']}** | {row['summary'][:80]}... | "
+                f"- `{row['id']}` | **{row['category']}** | {row['summary'][:80]}... | "
                 f"importance: {row['importance_score']:.1f} | acces: {row['access_count']}{project_info}"
             )
 
-        return f"## {len(rows)} memoire(s):\n" + "\n".join(results)
+        return (
+            f"## {len(rows)} memoire(s):\n" + "\n".join(results)
+            + "\n\n(ID entre backticks : utilisable avec delete_memory)"
+        )
 
     except Exception as e:
         logger.error(f"list_memories failed: {e}", exc_info=True)

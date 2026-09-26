@@ -397,9 +397,9 @@ async def generate_html():
         SELECT category, COUNT(*) as count FROM memories GROUP BY category ORDER BY count DESC
     """)
     by_project = await conn.fetch("""
-        SELECT project_context, COUNT(*) as count FROM memories 
-        WHERE project_context IS NOT NULL 
-        GROUP BY project_context ORDER BY count DESC LIMIT 10
+        SELECT project_context, COUNT(*) as count FROM memories
+        WHERE project_context IS NOT NULL
+        GROUP BY project_context ORDER BY count DESC
     """)
     
     # Stats prompts
