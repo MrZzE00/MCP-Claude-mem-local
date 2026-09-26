@@ -90,6 +90,11 @@ def compute_base_level(
 
     B(m) = ln(Sum_i (t_now - t_i)^(-d))
 
+    Time deltas are expressed in days: this store is a long-lived personal
+    knowledge base (memories revisited over weeks/months), not a short-term
+    cognition experiment. Using raw seconds made every memory cross the
+    forgotten threshold within about a minute of its last access.
+
     Recent and frequently accessed memories get higher activation.
     If no access timestamps exist, falls back to created_at alone.
 
@@ -111,8 +116,8 @@ def compute_base_level(
     for ts in timestamps:
         if ts.tzinfo is None:
             ts = ts.replace(tzinfo=timezone.utc)
-        delta_seconds = max((now - ts).total_seconds(), 1.0)
-        total += delta_seconds ** (-d)
+        delta_days = max((now - ts).total_seconds() / 86400.0, 1.0 / 24)
+        total += delta_days ** (-d)
 
     if total <= 0:
         return -10.0
