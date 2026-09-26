@@ -6,12 +6,14 @@
 #   2. Starts the MCP server in stdio mode
 #
 # Usage in Claude Desktop config:
-#   "command": "/Users/nnadir/claude-memory-local/start-server-desktop.sh"
+#   "command": "/absolute/path/to/claude-memory-local/start-server-desktop.sh"
 
 set -euo pipefail
 
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # ── Logging ──────────────────────────────────────────────────────────────
-LOG_DIR="/Users/nnadir/claude-memory-local/logs"
+LOG_DIR="$PROJECT_DIR/logs"
 mkdir -p "$LOG_DIR"
 LOG_FILE="$LOG_DIR/desktop-mcp-$(date +%Y%m%d).log"
 
@@ -23,13 +25,13 @@ log "Starting MCP server for Claude Desktop"
 export PATH="/opt/homebrew/bin:$PATH"
 
 # Load .env
-if [ -f /Users/nnadir/claude-memory-local/.env ]; then
+if [ -f "$PROJECT_DIR/.env" ]; then
     set -a
-    source /Users/nnadir/claude-memory-local/.env
+    source "$PROJECT_DIR/.env"
     set +a
     log "Loaded .env"
 fi
 
 # ── Launch ───────────────────────────────────────────────────────────────
-cd /Users/nnadir/claude-memory-local
-exec /Users/nnadir/claude-memory-local/venv/bin/python -m src.server 2>>"$LOG_FILE"
+cd "$PROJECT_DIR"
+exec "$PROJECT_DIR/venv/bin/python" -m src.server 2>>"$LOG_FILE"

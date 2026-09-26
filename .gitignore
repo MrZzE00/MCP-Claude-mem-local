@@ -76,3 +76,6 @@ secrets/
 # Security scan results
 *.sarif
 security-reports/
+
+# Local secret denylist for security-check.sh (never commit real values)
+scripts/.secret-patterns

@@ -23,8 +23,28 @@ fi
 # Check 2: No hardcoded passwords
 echo ""
 echo "[2/8] Checking for hardcoded passwords..."
-if grep -rn "***REMOVED***\|***REMOVED***" --include="*.py" src/ plugins/ 2>/dev/null; then
-    echo "  ❌ FAIL: Found hardcoded default passwords!"
+# Patterns are read from an untracked local file so that no real credential
+# ever lives in this repository. See scripts/.secret-patterns.example.
+PATTERNS_FILE="$(dirname "${BASH_SOURCE[0]}")/.secret-patterns"
+FOUND=0
+
+# Generic heuristic: a password/secret/token assigned a string literal in source.
+if grep -rnE '(password|passwd|secret|api_key|token)[[:space:]]*=[[:space:]]*["'"'"'][^"'"'"']+["'"'"']' \
+        --include="*.py" src/ plugins/ 2>/dev/null | grep -viE 'os\.getenv|os\.environ|getpass|= *["'"'"']{2}'; then
+    FOUND=1
+fi
+
+# Project-specific denylist (known-leaked or default credentials), never committed.
+if [ -f "$PATTERNS_FILE" ]; then
+    if grep -rn -f "$PATTERNS_FILE" --include="*.py" --include="*.sh" src/ plugins/ scripts/ 2>/dev/null; then
+        FOUND=1
+    fi
+else
+    echo "  ℹ️  No $PATTERNS_FILE (optional denylist); generic heuristic only."
+fi
+
+if [ "$FOUND" -ne 0 ]; then
+    echo "  ❌ FAIL: Found hardcoded credentials!"
     ERRORS=$((ERRORS + 1))
 else
     echo "  ✅ PASS: No hardcoded passwords found"
