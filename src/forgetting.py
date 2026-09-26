@@ -20,11 +20,11 @@ from actr_scoring import ACTRConfig, compute_base_level
 
 logger = logging.getLogger("claude-memory-local")
 
-# Thresholds for status transitions (based on base-level activation only)
-# DORMANT_THRESHOLD = ln(365^-d) with d=0.5: a single-access memory becomes
-# "forgotten" only after ~365 days of inactivity, not ~90 (the ACT-R-standard
-# tau=-2.0 would give).
-ACTIVE_THRESHOLD = 0.0
+# Thresholds for status transitions (based on base-level activation only).
+# With d=0.5, ACTIVE_THRESHOLD = ln(90^-d) and DORMANT_THRESHOLD = ln(365^-d):
+# a single-access memory is "active" up to ~90 days, "dormant" from ~90 to
+# ~365 days, and "forgotten" beyond ~365 days of inactivity.
+ACTIVE_THRESHOLD = -2.2499
 DORMANT_THRESHOLD = -2.9514
 
 
