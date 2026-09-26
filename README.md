@@ -1,6 +1,6 @@
 <div align="center">
 
-# claude-memory-local
+# SYNAPTIC-MEM
 
 **Persistent local memory for AI coding assistants — zero cloud tokens, 100% private.**
 
@@ -21,7 +21,7 @@ AI coding assistants forget everything between sessions. Architecture decisions,
 
 ## The Solution
 
-**claude-memory-local** is a persistent memory system that runs entirely on your machine. Every decision, bugfix, and pattern is stored locally in PostgreSQL with semantic search powered by pgvector. Embeddings are generated locally with Ollama — **zero tokens sent to any cloud API**.
+**SYNAPTIC-MEM** is a persistent memory system that runs entirely on your machine. Every decision, bugfix, and pattern is stored locally in PostgreSQL with semantic search powered by pgvector. Embeddings are generated locally with Ollama — **zero tokens sent to any cloud API**.
 
 Your team's knowledge compounds across sessions instead of evaporating.
 
@@ -46,7 +46,7 @@ Your team's knowledge compounds across sessions instead of evaporating.
 
 <div align="center">
 
-![Web Interface](docs/Screenshot-claude-memory-local.png)
+![Web Interface](docs/Screenshot-synaptic-mem.png)
 
 </div>
 
